@@ -56,17 +56,58 @@ class Vanilla(object):
 
         return price
 
+import random
+
+
+def gen_one_path(n_steps,spot,rate_d,rate_f,vol,maturity):
+        
+        T = maturity
+        dt = T / n_steps
+        S=[spot]
+        rd=rate_d
+        rf=rate_f
+        sigma = math.sqrt(dt)
+
+        for _ in range(n_steps):
+
+            dS = S[-1]*((rd-rf) * dt + vol * random.gauss(0,sigma))
+            S.append(S[-1]+dS)
+
+        return S
+
+
+class TRF(object):  # Target Redemption Forward class  
+
+
+    def __init__(self,otype,spot,vol,rate_d,rate_f,strike,maturity,n_steps,*fixings): 
+
+        self.otype=otype
+        self.spot=spot
+        self.vol=vol
+        self.rate_f=rate_f
+        self.rate_d=rate_d
+        self.strike=strike
+        self.maturity=maturity
+        self.n_steps=n_steps
+
+    # spot dynamic is dS/S =  (rd-rf) * dt + vol * dw
+
+    
+            
+
     
 
 if __name__ == "__main__":
 
+    S=gen_one_path(100,0.66,0.03,0.02,0.1, 1)
 
-    option1 = Vanilla('put', 50, 0.3, 0.02, 51.01006700133779, 1)
-    option2 = Vanilla('call', 50, 0.3, 0.02, 51.01006700133779, 1)
+    print(S)
+    #option1 = Vanilla('put', 50, 0.3, 0.02, 51.01006700133779, 1)
+    #option2 = Vanilla('call', 50, 0.3, 0.02, 51.01006700133779, 1)
 
-    print(option1)
+    #print(option1)
 
-    print(option1.pricing_bs()-option2.pricing_bs())
+    #print(option1.pricing_bs()-option2.pricing_bs())
     
     #print(option1.forward())
     #print(option1.forward())
