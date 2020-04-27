@@ -13,6 +13,8 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
+from scipy.stats import norm
+
 
 
 class Option(object):
@@ -27,7 +29,7 @@ class Option(object):
 
 class Vanilla(Option):
     
-    def __init__(self, underlying, asset_class, maturity, strike, style):
+    def __init__(self, underlying, asset_class, maturity, strike, style, quantity):
 
         super().__init__(underlying,asset_class)
 
@@ -36,6 +38,8 @@ class Vanilla(Option):
         self._strike = strike
 
         self._style = style
+
+        self._quantity=quantity
     
         self._delta_bump=0.1
         self._delta_bump_is_percent=True
@@ -74,25 +78,29 @@ class Vanilla(Option):
         
         fwd = self.forward(spot,rate_c,rate_a)
 
+        Q = self._quantity
+
         T = self._maturity
         K = self._strike
         D = math.exp(-rate_c*T)
 
-        N=statistics.NormalDist().cdf
+        N=norm.cdf     # standard normal distribution cumulative function
 
         d1 = (math.log(fwd/K)+0.5*vol**2*T)/(vol*math.sqrt(T)) 
         d2 = d1-vol*math.sqrt(T)
 
-        call_price = D*(N(d1)*fwd - N(d2)*K)
+        call_price = D*(N(d1)*fwd - N(d2)*K) * Q
 
-        put_price = D*(N(-d2)*K-N(-d1)*fwd)
+        put_price = D*(N(-d2)*K-N(-d1)*fwd) * Q
         
         return {'call':call_price,'put':put_price}
 
-    def delta(self,spot,vol,rate_c,rate_a,model):
+    def delta_fd(self,spot,vol,rate_c,rate_a,model):
 
         if spot<=0:
             spot=0.0001
+
+        Q = self._quantity
 
         price = model(spot,vol,rate_c,rate_a)
 
@@ -108,14 +116,16 @@ class Vanilla(Option):
             
         price_up = model(spot_up,vol,rate_c,rate_a)
 
-        delta_call = (price_up['call']- price['call'])/(spot_up-spot)
+        delta_call = (price_up['call']- price['call'])/(spot_up-spot) * Q
 
-        delta_put = (price_up['put'] - price['put'])/(spot_up-spot)
+        delta_put = (price_up['put'] - price['put'])/(spot_up-spot) * Q
         
         return {'call': delta_call, 'put': delta_put}
 
 
-    def gamma(self,spot,vol,rate_c,rate_a,model):
+    def gamma_fd(self,spot,vol,rate_c,rate_a,model):
+
+        Q = self._quantity
 
         if spot<=0:
             spot=0.0001
@@ -137,13 +147,15 @@ class Vanilla(Option):
         price_up = model(spot_up,vol,rate_c,rate_a)
         price_down = model(spot_down,vol,rate_c,rate_a)
 
-        gamma_call = (price_up['call'] + price_down['call']-2*price['call'])/((spot_up-spot)**2)
+        gamma_call = (price_up['call'] + price_down['call']-2*price['call'])/((spot_up-spot)**2) * Q
 
-        gamma_put = (price_up['put'] + price_down['put']-2*price['put'])/((spot_up-spot)**2)
+        gamma_put = (price_up['put'] + price_down['put']-2*price['put'])/((spot_up-spot)**2) * Q
 
         return {'call':gamma_call,'put':gamma_put}
 
-    def vega(self,spot,vol,rate_c,rate_a,model):
+    def vega_fd(self,spot,vol,rate_c,rate_a,model):
+
+        Q = self._quantity
 
         if spot<=0:
             spot=0.0001
@@ -162,14 +174,16 @@ class Vanilla(Option):
             
         price_up = model(spot,vol_up,rate_c,rate_a)
 
-        vega_call = (price_up['call']- price['call'])/(vol_up-vol)
+        vega_call = (price_up['call']- price['call'])/(vol_up-vol) * Q
 
-        vega_put = (price_up['put'] - price['put'])/(vol_up-vol)
+        vega_put = (price_up['put'] - price['put'])/(vol_up-vol) * Q
 
         
         return {'call': vega_call, 'put': vega_put}
     
-    def theta(self,spot,vol,rate_c,rate_a,model):
+    def theta_fd(self,spot,vol,rate_c,rate_a,model):
+
+        Q = self._quantity
 
         if spot<=0:
             spot=0.0001
@@ -182,9 +196,9 @@ class Vanilla(Option):
 
         price_shift = model(spot,vol,rate_c,rate_a)
 
-        theta_call = price_shift['call']- price['call']
+        theta_call = (price_shift['call']- price['call'])*Q
 
-        theta_put = price_shift['put'] - price['put']
+        theta_put = (price_shift['put'] - price['put'])*Q
 
         self._maturity= self._maturity + bumpvalue
         
@@ -209,6 +223,8 @@ class Vanilla(Option):
 
 
     def pricing_mc(self,spot,vol,rate_c,rate_a):
+
+        Q = self._quantity
 
         if spot<=0:
             spot=0.0001
@@ -237,13 +253,15 @@ class Vanilla(Option):
 
             p.append(D* max(K-s[-1] , 0))
 
-        call_price = statistics.mean(c)
-        put_price = statistics.mean(p)
+        call_price = statistics.mean(c) * Q
+        put_price = statistics.mean(p) * Q
 
         return {'call':call_price, 'put':put_price}
 
 
     def pricing_crr(self,spot,vol,rate_c,rate_a):  # pricing option using binomial tree, time steps is n_steps
+
+        Q = self._quantity
 
         if spot<=0:
             spot=0.0001
@@ -320,76 +338,160 @@ class Vanilla(Option):
                         call_tree[j,i] = D * (p*call_tree[j-1,i+1]+(1-p)*call_tree[j+1,i+1])
                         put_tree[j,i] = D * (p*put_tree[j-1,i+1]+(1-p)*put_tree[j+1,i+1])
                     
-        call_price = call_tree[n_steps-1,0]
-        put_price= put_tree[n_steps-1,0]
+        call_price = call_tree[n_steps-1,0] * Q
+        put_price= put_tree[n_steps-1,0] * Q
 
-        call_delta = (call_tree[n_steps-2,1]-call_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
-        put_delta = (put_tree[n_steps-2,1]-put_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
+        call_delta = (call_tree[n_steps-2,1]-call_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
+        put_delta = (put_tree[n_steps-2,1]-put_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
 
         call_delta_up =(call_tree[n_steps-3,2]-call_tree[n_steps-1,2])/(spot_tree[n_steps-3,2]-spot_tree[n_steps-1,2])
         call_delta_down =(call_tree[n_steps-1,2]-call_tree[n_steps+1,2])/(spot_tree[n_steps-1,2]-spot_tree[n_steps+1,2])
         put_delta_up =(put_tree[n_steps-3,2]-put_tree[n_steps-1,2])/(spot_tree[n_steps-3,2]-spot_tree[n_steps-1,2])
         put_delta_down =(put_tree[n_steps-1,2]-put_tree[n_steps+1,2])/(spot_tree[n_steps-1,2]-spot_tree[n_steps+1,2])
 
-        call_gamma =  (call_delta_up - call_delta_down)/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
-        put_gamma =  (put_delta_up - put_delta_down)/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
+        call_gamma =  (call_delta_up - call_delta_down)/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
+        put_gamma =  (put_delta_up - put_delta_down)/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
 
         return {'call':call_price,'put':put_price,'call delta':call_delta,'put delta':put_delta,'call gamma':call_gamma,'put gamma':put_gamma}
         #return put_tree
 
-    def spot_ladder(self, spot_start, spot_end, spot_step,vol,rate_c,rate_a,model1,key1='call',model1_flag=None, model2=None,key2='call',model2_flag=None):
 
-        # model_flag should input the model name if it is to compute greeks, otherwise if compute premium, model_flag should be None(by default)
+    def spot_ladder(self, spot_start, spot_end, spot_step,vol,rate_c,rate_a,greeks_fn,model_alt=None):
 
         spot_rng = np.arange(spot_start,spot_end,spot_step)
 
-        op1=[]
-        op2=[]
+        c_greeks_value =[]
+        p_greeks_value =[]
 
-        diff=[]
+        if model_alt is not None:
+            c_greeks_value_alt =[]
+            p_greeks_value_alt =[]
 
         for s in spot_rng:
 
             n=(spot_end-spot_start)/spot_step -1
             i=(s-spot_start)/spot_step
             progress= int(i/n*100)
+           
+            print('Spot = %f, in progress %d complete' % (s, progress))
 
-            if progress % 10 ==0:
-                print('Spot = %f, in progress %i complete' % (s, progress))
+            if self._style.lower() == 'a':
 
-            if model1_flag is None:
-
-                op1_value=model1(s,vol,rate_c,rate_a)[key1]
+                pricing_model = self.pricing_crr
 
             else:
 
-                op1_value=model1(s,vol,rate_c,rate_a,model1_flag)[key1]
+                pricing_model = self.pricing_bsm
 
-            op1.append(op1_value)
+            if greeks_fn.lower() == 'pl':
 
-            if model2 is not None:
+                c_value = pricing_model(s,vol,rate_c,rate_a)['call']
+                p_value = pricing_model(s,vol,rate_c,rate_a)['put']
+                
+                if model_alt is not None:
 
-                if model2_flag is None:
+                    c_value_alt =model_alt(s,vol,rate_c,rate_a)['call']
+                    p_value_alt =model_alt(s,vol,rate_c,rate_a)['put']
+                
+            elif greeks_fn.lower()=='delta':
+                
+                if self._style.lower() == 'a':
 
-                    op2_value=model2(s,vol,rate_c,rate_a)[key2]
+                    c_value = pricing_model(s,vol,rate_c,rate_a)['call delta']
+                    p_value = pricing_model(s,vol,rate_c,rate_a)['put delta']
 
                 else:
 
-                    op2_value=model2(s,vol,rate_c,rate_a,model2_flag)[key2]
+                    c_value = self.delta_fd(s,vol,rate_c,rate_a,pricing_model)['call']
+                    p_value = self.delta_fd(s,vol,rate_c,rate_a,pricing_model)['put']
 
-                op2.append(op2_value)
+                if model_alt is not None:
 
-                diff.append(op1_value-op2_value)
+                    c_value_alt =self.delta_fd(s,vol,rate_c,rate_a,model_alt)['call']
+                    p_value_alt =self.delta_fd(s,vol,rate_c,rate_a,model_alt)['put']
 
+            elif greeks_fn.lower()=='gamma':
+                
+                if self._style.lower() == 'a':
 
+                    c_value = pricing_model(s,vol,rate_c,rate_a)['call gamma']
+                    p_value = pricing_model(s,vol,rate_c,rate_a)['put gamma']
 
+                else:
+
+                    c_value = self.gamma_fd(s,vol,rate_c,rate_a,pricing_model)['call']
+                    p_value = self.gamma_fd(s,vol,rate_c,rate_a,pricing_model)['put']
+
+                if model_alt is not None:
+
+                    c_value_alt =self.gamma_fd(s,vol,rate_c,rate_a,model_alt)['call']
+                    p_value_alt =self.gamma_fd(s,vol,rate_c,rate_a,model_alt)['put']
+
+            elif greeks_fn.lower()=='vega':
+                
+                c_value = self.vega_fd(s,vol,rate_c,rate_a,pricing_model)['call']
+                p_value = self.vega_fd(s,vol,rate_c,rate_a,pricing_model)['put']
+
+                if model_alt is not None:
+
+                    c_value_alt =self.vega_fd(s,vol,rate_c,rate_a,model_alt)['call']
+                    p_value_alt =self.vega_fd(s,vol,rate_c,rate_a,model_alt)['put']
+
+            elif greeks_fn.lower()=='theta':
+                
+                c_value = self.theta_fd(s,vol,rate_c,rate_a,pricing_model)['call']
+                p_value = self.theta_fd(s,vol,rate_c,rate_a,pricing_model)['put']
+
+                if model_alt is not None:
+
+                    c_value_alt =self.theta_fd(s,vol,rate_c,rate_a,model_alt)['call']
+                    p_value_alt =self.theta_fd(s,vol,rate_c,rate_a,model_alt)['put']
+            
+
+            c_greeks_value.append(c_value)
+            p_greeks_value.append(p_value)
+
+            if model_alt is not None:
+                c_greeks_value_alt.append(c_value_alt)
+                p_greeks_value_alt.append(p_value_alt)
+        
+        y_c = c_greeks_value
+        y_p = p_greeks_value
+
+        if model_alt is not None:
+
+            y_c_alt = c_greeks_value_alt
+            y_p_alt = p_greeks_value_alt
+            
+        y_label = greeks_fn.lower()
+        y_reg_c = np.polyfit(spot_rng,y_c,6)
+        y_reg_p = np.polyfit(spot_rng,y_p,6)    
+        y_fit_c = np.polyval(y_reg_c,spot_rng)
+        y_fit_p = np.polyval(y_reg_p,spot_rng)      
+
+        
         plt.figure()
-        plt.plot(spot_rng,op1)
+        plt.plot(spot_rng,y_c,label='call '+ y_label)
+        plt.plot(spot_rng,y_p,label='put '+ y_label)
+        #plt.plot(spot_rng,y_fit_c,label='call '+ y_label+' fit curve')
+        #plt.plot(spot_rng,y_fit_p,label='put '+ y_label+' fit curve')
 
-        if model2 is not None:
-            plt.plot(spot_rng,op2)
-            #plt.plot(spot_rng,diff)
+        if model_alt is not None:
 
+            y_reg_c_alt = np.polyfit(spot_rng,y_c_alt,6)
+            y_reg_p_alt = np.polyfit(spot_rng,y_p_alt,6)    
+            y_fit_c_alt = np.polyval(y_reg_c_alt,spot_rng)
+            y_fit_p_alt = np.polyval(y_reg_p_alt,spot_rng)   
+
+            plt.plot(spot_rng,y_c_alt,label='call '+ y_label + '---model 2')
+            plt.plot(spot_rng,y_p_alt,label='put '+ y_label + '---model 2')
+            #plt.plot(spot_rng,y_fit_c_alt,label='call '+ y_label+' fit curve'+'-model 2')
+            #plt.plot(spot_rng,y_fit_p_alt,label='put '+ y_label+' fit curve'+'-model 2')  
+
+        plt.xlabel('spot')
+        plt.ylabel(y_label)
+        plt.legend(loc=4)
+        plt.title('Vanilla option') 
         plt.show()
 
         return None
@@ -665,7 +767,7 @@ class TARF(Option):
         return theta_fd
 
     
-    def spot_ladder(self,spot_start,spot_end,spot_step,vol,rate_d,rate_f,target_fn):
+    def spot_ladder(self,spot_start,spot_end,spot_step,vol,rate_d,rate_f,target_fn,fit_df=6):
 
 
         spot_rng = np.arange(spot_start,spot_end,spot_step)
@@ -675,8 +777,6 @@ class TARF(Option):
         # print('total steps is: %d' % n)
 
         y = []
-
-        
 
         for s in spot_rng:
   
@@ -719,8 +819,8 @@ class TARF(Option):
 
 
         y_label = target_fn.lower()
-        reg = np.polyfit(spot_rng,y,6)
-        y_fit = np.polyval(reg,spot_rng)
+        reg = np.polyfit(spot_rng,y,fit_df)  # returns the fit curve polynominal function, order is fit_df
+        y_fit = np.polyval(reg,spot_rng)   # return the y value array given polynominal function and x value array
 
         # print(y_fit)
         
@@ -738,7 +838,7 @@ class TARF(Option):
             
  
         
-def main():
+def main_vanilla():
 
     underlying='spy'
     assetclass='EQD'
@@ -748,13 +848,17 @@ def main():
     K = 50
     rate_usd=0.01
     div_spy=0.03
+    quantity = 100
 
-    op = Vanilla(underlying,assetclass,T,K,'E')
+    op = Vanilla(underlying,assetclass,T,K,'a',quantity)
 
-    op._nsteps_crr=101
-    op._npaths_mc=1000
+    op._nsteps_crr=300
+    op._npaths_mc=5000
+    op._nsteps_mc=100
+    op._rnd_seed=54321
 
-    op.spot_ladder(1,100,1,vol,rate_usd,div_spy,op.gamma,'call',op.pricing_bsm,op.gamma,'call',op.pricing_mc)
+    op.spot_ladder(5,100,5,vol,rate_usd,div_spy,'delta',op.pricing_bsm)
+
 
 
 
@@ -776,7 +880,7 @@ def main_tarf():
 
     for i in range(9):
 
-        fixing_time = (i+1)  * 30/365
+        fixing_time = (i+1)  * 15/365
 
         fixings_schedule.append(fixing_time)
 
@@ -784,6 +888,8 @@ def main_tarf():
 
 
     tarf1 = TARF(underlying,assetclass,strike,barrier,barrier_type,target,gear,notional,fixings_schedule)
+
+    tarf1._nsteps_mc =10*3
 
     #price = tarf1.pricing_mc(spot,vol,rate_cnh,rate_usd,270,10000,None)
     #print(price)
@@ -795,8 +901,8 @@ def main_tarf():
     tarf1._gamma_bump_is_percent=True
     tarf1._rnd_seed = 10000
 
-    tarf1.spot_ladder(6.6,8.0,0.02,vol,rate_cnh,rate_usd,'PL')
+    tarf1.spot_ladder(6.6,8.0,0.02,vol,rate_cnh,rate_usd,'theta',6)
 
 if __name__ =='__main__':
 
-    main_tarf()
+    main_vanilla()
