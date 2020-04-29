@@ -256,6 +256,89 @@ class Vanilla(Option):
         self._maturity= self._maturity + bumpvalue
         
         return theta_value
+
+    
+    def volga(self,spot,vol,rate_c,rate_a,model_alt=None):
+
+        if model_alt is None:
+
+            model = self._default_model
+        else:
+            model = model_alt
+
+        if spot<=0:
+            spot=0.0001
+
+        vega = self.vega(spot,vol,rate_c,rate_a,model)
+
+        bumpvalue=self._vega_bump
+
+        if self._vega_bump_is_percent == True:
+
+            vol_up = vol * (1+bumpvalue/100)
+            
+        else:                                 # then the bumpvalue is absolute
+
+            vol_up = vol + bumpvalue
+
+        vega_up = self.vega(spot,vol_up,rate_c,rate_a,model)
+
+        volga_value = (vega_up - vega)/(vol_up-vol)
+
+        return volga_value
+
+
+    def vanna(self,spot,vol,rate_c,rate_a,dvega=True,model_alt=None):
+
+        if model_alt is None:
+
+            model = self._default_model
+        else:
+            model = model_alt
+
+        if spot<=0:
+            spot=0.0001
+
+        if dvega == True:
+
+            vega = self.vega(spot,vol,rate_c,rate_a,model)
+
+            bumpvalue=self._delta_bump
+
+            if self._delta_bump_is_percent == True:
+
+                spot_up = spot * (1+bumpvalue/100)
+            
+            else:                                 # then the bumpvalue is absolute
+
+                spot_up = spot + bumpvalue
+
+            vega_up = self.vega(spot_up,vol,rate_c,rate_a,model)
+
+            vanna_value = (vega_up - vega)/(spot_up-vol)
+
+        else:
+
+            delta = self.delta(spot,vol,rate_c,rate_a,model)
+            
+            bumpvalue=self._vega_bump
+
+            if self._vega_bump_is_percent == True:
+
+                vol_up = vol * (1+bumpvalue/100)
+            
+            else:                                 # then the bumpvalue is absolute
+
+                vol_up = vol + bumpvalue
+
+            delta_up = self.delta(spot,vol_up,rate_c,rate_a,model)
+
+            vanna_value = (delta_up-delta) / (vol_up-vol)
+
+ 
+        return vanna_value
+
+
     
     @staticmethod
     def gen_one_path(T,spot,vol,rate_c,rate_a,n_steps):
@@ -273,6 +356,26 @@ class Vanilla(Option):
             S.append(S[-1]+dS)
 
         return S      # the size of S should be n_steps + 1 
+
+    @staticmethod
+    def sim_spot(T,spot,vol,rate_c,rate_a,n_paths):
+
+        if spot<=0:
+            spot=0.0001
+
+        sigma = math.sqrt(T)
+
+        diffuse = np.random.normal(0,vol*sigma,n_paths)
+
+        s=[]
+
+        for i in range(n_paths):
+
+            s_i = spot * math.exp((rate_c-rate_a-0.5*vol**2)*T + diffuse[i])
+
+            s.append(s_i)
+
+        return s      # the size of s should be n_paths
 
 
     def pricing_mc(self,spot,vol,rate_c,rate_a):
@@ -330,10 +433,9 @@ class Vanilla(Option):
             spot=0.0001
 
         if self._rnd_seed > 0:
-            random.seed(self._rnd_seed)
+            np.random.seed(self._rnd_seed)
 
         n_paths = self._npaths_mc
-        n_steps = self._nsteps_mc
 
         T = self._maturity
 
@@ -345,13 +447,13 @@ class Vanilla(Option):
 
         p =[]
 
+        s = self.sim_spot(T,spot,vol,rate_c,rate_a,n_paths)
+
         for i in range(n_paths):
 
-            s = self.gen_one_path(T,spot,vol,rate_c,rate_a,n_steps)
+            c.append(D * max(s[i]-K , 0))
 
-            c.append(D * max(s[-1]-K , 0))
-
-            p.append(D* max(K-s[-1] , 0))
+            p.append(D * max(K-s[i] , 0))
 
         call_price = statistics.mean(c) * Q
         put_price = statistics.mean(p) * Q
@@ -557,11 +659,31 @@ class Vanilla(Option):
                 if model_alt is not None:
 
                     value_alt =self.theta(s,vol,rate_c,rate_a,model_alt)
+
+            elif greeks.lower()=='volga':
+
+                value = self.volga(s,vol,rate_c,rate_a)
+
+                if model_alt is not None:
+
+                    value_alt =self.volga(s,vol,rate_c,rate_a,model_alt)
+            
+            elif greeks.lower()=='vanna':
+
+                value = self.vanna(s,vol,rate_c,rate_a)
+
+                if model_alt is not None:
+
+                    value_alt =self.vanna(s,vol,rate_c,rate_a,False,model_alt)
           
             greeks_value.append(value)
 
+            print('Model1:',value)
+
             if model_alt is not None:
                 greeks_value_alt.append(value_alt)
+
+                print('Model2:',value_alt)
         
         y = greeks_value
 
@@ -606,7 +728,7 @@ def main_vanilla():
     T=0.5
     K = 50
     rate_usd=0.01
-    div_spy=0.03
+    div_spy=0.0
     quantity = 100
     cp='call'
 
@@ -615,10 +737,12 @@ def main_vanilla():
     op._nsteps_crr=300
     op._npaths_mc=10000
     op._nsteps_mc=200
-    op._rnd_seed=10000
+    op._rnd_seed=6666
+    op._vega_bump_is_percent = True
 
-    op.spot_ladder(5,100,5,vol,rate_usd,div_spy,'gamma',op.pricing_mc)
-
+    #opmc2=op.pricing_mc2(spot,vol,rate_usd,div_spy)
+    #print(opmc2)
+    op.spot_ladder(0,150,2,vol,rate_usd,div_spy,'vanna')
 
 
 if __name__ =='__main__':
