@@ -6,33 +6,83 @@ class Structure(Option):
 
         super().__init__(underlying,asset_class)
 
-        self._underlying = underlying
-
         self._option_array = option_array
 
-    def pricing(self,spot,vol,rate_c,rate_a):
+
+    def pricing(self,spot,vol,rate_c,rate_a,greeks='pl'):
 
         options = self._option_array
 
-        mv=0
+        struc_greeks_value =0
 
         for op in options:
 
-            if op._style == 'a':
+            model = op._default_model
 
-                model = op.pricing_crr
+            if greeks.lower() == 'pl':
+
+                value = model(spot,vol,rate_c,rate_a)
+            
+            elif greeks.lower() =='delta':
+
+                value = op.delta(spot,vol,rate_c,rate_a)
+
+            elif greeks.lower() =='gamma':
+
+                value = op.gamma(spot,vol,rate_c,rate_a)
+
+            elif greeks.lower()=='vega':
+
+                value = op.vega(spot,vol,rate_c,rate_a)
+
+            elif greeks.lower()=='theta':
+
+                value = op.theta(spot,vol,rate_c,rate_a)
 
             else:
 
-                model = op.pricing_bsm
+                value = 0
 
-            opvalue = model(spot,vol,rate_c,rate_a)['call']
-
-            print(opvalue)
-
-            mv = mv + opvalue
+            struc_greeks_value = struc_greeks_value + value
         
-        return mv
+        return struc_greeks_value 
+
+    
+    def spot_ladder(self, spot_start, spot_end, spot_step,vol,rate_c,rate_a,greeks):
+
+        spot_rng = np.arange(spot_start,spot_end,spot_step)
+
+        greeks_value =[]
+
+        for s in spot_rng:
+
+            n=(spot_end-spot_start)/spot_step -1
+            i=(s-spot_start)/spot_step
+            progress= int(i/n*100)
+
+            print('Spot = %f, in progress %d complete' % (s, progress))
+
+            value = self.pricing(s,vol,rate_c,rate_a,greeks)
+
+            greeks_value.append(value)
+        
+        y = greeks_value
+        y_label = greeks.lower()
+        y_reg = np.polyfit(spot_rng,y,6)
+        y_fit = np.polyval(y_reg,spot_rng)
+
+        plt.figure()
+        plt.plot(spot_rng,y,label=y_label)
+
+        plt.xlabel('spot')
+        plt.ylabel(y_label)
+        plt.legend(loc=4)
+        plt.title('Structure') 
+        plt.show()
+
+
+
+        
 
 
 
@@ -40,24 +90,33 @@ def main_structure():
 
     underlying='spy'
     assetclass='EQD'
-    spot=50
+    spot=55
     vol=0.3
-    T1=0.5
-    K1 = 50
-    K2 = 55
+    T1=1
+    T2=0.5
+    K1 = 60
+    K2 = 50
+    K3 = 70
+    K4 = 40
     rate_usd=0.01
-    div=0.03
+    div=0.02
     q1 = 100
-    q2 = -100
+    q2 = 100
+    q3 = -100
+    q4 = -100
 
-    op1 = Vanilla(underlying,assetclass,T1,K1,'a',q1)
-    op2 = Vanilla(underlying,assetclass,T1,K2,'a',q2)
 
-    s1 = Structure(underlying,[op1,op2])
+    op1 = Vanilla(underlying,assetclass,T1,K1,'e','call',q1)
+    op2 = Vanilla(underlying,assetclass,T1,K2,'e','put',q2)
+    op3 = Vanilla(underlying,assetclass,T1,K3,'e','call',q3)
+    op4 = Vanilla(underlying,assetclass,T1,K4,'e','put',q4)
 
-    s1_value = s1.pricing(spot,vol,rate_usd,div)
+    s1 = Structure(underlying,assetclass,[op1,op2,op3,op4])
 
-    print(s1_value)
+    #s1_value = s1.pricing(spot,vol,rate_usd,div,'delta')
+
+    s1.spot_ladder(1,150,1,vol,rate_usd,div,'pl')
+
 
 
 if __name__ =='__main__':
