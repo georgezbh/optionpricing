@@ -58,6 +58,8 @@ class Vanilla(Option):
         self._vega_bump=0.1
         self._vega_bump_is_percent=False
         self._theta_bump=1/365
+
+        self._vanna_dvega = False
     
         self._npaths_mc = 1000
         self._nsteps_mc = 300
@@ -288,7 +290,7 @@ class Vanilla(Option):
         return volga_value
 
 
-    def vanna(self,spot,vol,rate_c,rate_a,dvega=True,model_alt=None):
+    def vanna(self,spot,vol,rate_c,rate_a,model_alt=None):
 
         if model_alt is None:
 
@@ -299,7 +301,7 @@ class Vanilla(Option):
         if spot<=0:
             spot=0.0001
 
-        if dvega == True:
+        if self._vanna_dvega == True:
 
             vega = self.vega(spot,vol,rate_c,rate_a,model)
 
@@ -674,7 +676,7 @@ class Vanilla(Option):
 
                 if model_alt is not None:
 
-                    value_alt =self.vanna(s,vol,rate_c,rate_a,False,model_alt)
+                    value_alt =self.vanna(s,vol,rate_c,rate_a,model_alt)
           
             greeks_value.append(value)
 
@@ -735,14 +737,16 @@ def main_vanilla():
     op = Vanilla(underlying,assetclass,T,K,'e',cp,quantity)
 
     op._nsteps_crr=300
-    op._npaths_mc=10000
+    op._npaths_mc=100000
     op._nsteps_mc=200
     op._rnd_seed=6666
-    op._vega_bump_is_percent = True
+    op._vega_bump_is_percent = False
+
+    # op._vanna_dvega = True
 
     #opmc2=op.pricing_mc2(spot,vol,rate_usd,div_spy)
     #print(opmc2)
-    op.spot_ladder(0,150,2,vol,rate_usd,div_spy,'vanna')
+    op.spot_ladder(0,150,2,vol,rate_usd,div_spy,'theta',op.pricing_mc2)
 
 
 if __name__ =='__main__':
