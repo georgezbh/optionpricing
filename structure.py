@@ -90,14 +90,14 @@ def main_structure():
 
     underlying='spy'
     assetclass='EQD'
-    spot=55
+    spot=50
     vol=0.3
     T1=1
-    T2=0.5
-    K1 = 60
-    K2 = 50
-    K3 = 70
-    K4 = 40
+    T2=0.1
+    K1 = 70
+    K2 = 40
+    K3 = 80
+    K4 = 30
     rate_usd=0.01
     div=0.02
     q1 = 100
@@ -113,9 +113,27 @@ def main_structure():
 
     s1 = Structure(underlying,assetclass,[op1,op2,op3,op4])
 
+    op_series= []
+
+    for i in range(300):
+
+        q= 1/((i+1)**2) * 100
+
+        op_c = Vanilla(underlying,assetclass,T1,i+1,'e','call',q)
+
+        fwd = op_c.forward(spot,rate_usd,div)
+    
+        op_series.append(op_c)
+
+        if i+1 <= 3000:
+            op_p = Vanilla(underlying,assetclass,T1,i+1,'e','put',q)
+            op_series.append(op_p)
+
+    vw = Structure(underlying,assetclass,op_series)
+
     #s1_value = s1.pricing(spot,vol,rate_usd,div,'delta')
 
-    s1.spot_ladder(1,150,1,vol,rate_usd,div,'pl')
+    vw.spot_ladder(1,150,1,vol,rate_usd,div,'delta')
 
 
 
