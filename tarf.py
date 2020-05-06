@@ -45,6 +45,8 @@ class TARF(Option):
         self._vega_bump_is_percent=False
         self._theta_bump=1/365
 
+        self._vanna_dvega = False
+
     
     def gen_one_path(self,spot,vol,rate_d,rate_f):  # simulate and return the fixing spots along fixing schedule
 
@@ -75,6 +77,39 @@ class TARF(Option):
             s_fix.append(s[one_fix_index])
 
         return s_fix
+    
+    def gen_fixings(self,spot,vol,rate_d,rate_f):
+
+        if spot<=0:
+            spot = 0.0001
+
+        s_fix =[]
+
+        t_fix = self._fixing_schedule
+
+        for index in range(len(self._fixing_schedule)):
+
+
+            if index ==0:
+
+                t = t_fix[index]
+
+                sigma = math.sqrt(t)
+
+                fix = spot * math.exp((rate_d-rate_f-0.5*vol**2)*t+vol*random.gauss(0,sigma))
+
+            else:
+
+                t = t_fix[index] - t_fix[index-1]
+
+                sigma = math.sqrt(t)
+
+                fix = s_fix[index-1] * math.exp((rate_d-rate_f-0.5*vol**2)*t+vol*random.gauss(0,sigma))
+
+            s_fix.append(fix)
+
+        return s_fix
+
 
     def pricing_mc(self,spot,vol,rate_d,rate_f,debug=False):
 
@@ -108,8 +143,9 @@ class TARF(Option):
 
         for i in range(n_paths):
 
-            s_fix=self.gen_one_path(spot,vol,rate_d,rate_f) 
-
+            #s_fix=self.gen_one_path(spot,vol,rate_d,rate_f) 
+            
+            s_fix = self.gen_fixings(spot,vol,rate_d,rate_f)
             # print (s_fix)  
 
             civ = 0
@@ -286,6 +322,73 @@ class TARF(Option):
         
         return theta_fd
 
+    def vanna(self,spot,vol,rate_d,rate_f,model):
+
+        if spot<=0:
+            spot=0.0001
+
+        if self._vanna_dvega == False:
+
+            delta = self.delta(spot,vol,rate_d,rate_f,model)
+
+            bumpvalue = self._vega_bump
+
+            if self._vega_bump_is_percent == True:
+
+                vol_up = vol * (1+bumpvalue/100)
+            
+            else:                                 
+
+                vol_up = vol + bumpvalue
+
+            delta_up = self.delta(spot,vol_up,rate_d,rate_f,model)
+
+            vanna_value = (delta_up - delta)/(vol_up-vol)
+
+        else:
+
+            vega = self.vega(spot,vol,rate_d,rate_f,model)
+
+            bumpvalue = self._delta_bump
+
+            if self._delta_bump_is_percent == True:
+
+                spot_up = spot *(1+bumpvalue/100)
+
+            else:
+
+                spot_up = spot + bumpvalue
+
+            vega_up = self.vega(spot,vol,rate_d,rate_f,model)
+
+            vanna_value = (vega_up - vega)/(spot_up-spot)
+
+        return vanna_value
+
+    def volga(self,spot,vol,rate_d,rate_f,model):
+
+        if spot<=0:
+            spot=0.0001
+        
+        vega = self.vega(spot,vol,rate_d,rate_f,model)
+
+        bumpvalue = self._vega_bump
+
+        if self._vega_bump_is_percent == True:
+
+            vol_up = vol * (1+bumpvalue/100)
+            
+        else:                                 
+
+            vol_up = vol + bumpvalue
+
+        vega_up = self.vega(spot,vol_up,rate_d,rate_f,model)
+
+        volga_value = (vega_up - vega)/(vol_up-vol)
+
+        return volga_value
+        
+
     
     def spot_ladder(self,spot_start,spot_end,spot_step,vol,rate_d,rate_f,target_fn,fit_df=6):
 
@@ -336,6 +439,20 @@ class TARF(Option):
                 theta = self.theta(s,vol,rate_d,rate_f,self.pricing_mc)
 
                 y.append(theta)
+            
+            elif target_fn.lower()=='vanna':
+
+                vanna = self.vanna(s,vol,rate_d,rate_f,self.pricing_mc)
+
+                y.append(vanna)
+
+            elif target_fn.lower()=='volga':
+
+                volga = self.volga(s,vol,rate_d,rate_f,self.pricing_mc)
+
+                y.append(volga)
+
+            
 
 
         y_label = target_fn.lower()
@@ -345,8 +462,8 @@ class TARF(Option):
         # print(y_fit)
         
         plt.figure()
-        plt.scatter(spot_rng,y,c='b',label=y_label)
-        plt.plot(spot_rng,y_fit,c='r',label=y_label+' fit curve')
+        plt.plot(spot_rng,y,c='b',label=y_label)
+        # plt.plot(spot_rng,y_fit,c='r',label=y_label+' fit curve')
         plt.xlabel('spot')
         plt.ylabel(y_label)
         plt.legend(loc=4)
@@ -362,7 +479,7 @@ def main_tarf():
     vol = 0.05
     rate_cnh = 0.015
     rate_usd = 0.01
-    notional = 1
+    notional = -1
     strike = 7.28
     barrier = 7.38
     barrier_type = 'KI'
@@ -386,14 +503,14 @@ def main_tarf():
     #price = tarf1.pricing_mc(spot,vol,rate_cnh,rate_usd,270,10000,None)
     #print(price)
 
-    tarf1._npaths_mc = 5000
-    tarf1._nsteps_mc = 270
-    tarf1._vega_bump = 0.001
+    tarf1._npaths_mc = 10000
+    tarf1._nsteps_mc = 1000
+    tarf1._vega_bump = 0.05
     tarf1._gamma_bump=1
     tarf1._gamma_bump_is_percent=True
     tarf1._rnd_seed = 10000
 
-    tarf1.spot_ladder(6.6,8.0,0.02,vol,rate_cnh,rate_usd,'theta',6)
+    tarf1.spot_ladder(6.6,8.0,0.02,vol,rate_cnh,rate_usd,'vanna',6)
 
 
 
