@@ -698,20 +698,32 @@ class Vanilla(Option):
         
             ds = spot_max / s_steps
 
-            x1 = int(spot/ds)
-
             x = spot/ds
+
+            x0 = int(x)
+
+            spot_index =x0
 
             spot_rng = np.linspace(0,spot_max,s_steps+1)
 #############################################################################################################################
 
-            if abs(x-x1) > 0.00001:
+            if abs(x-x0) > 0.00001:
 
-                np.insert(spot_rng,x1,spot)
+                ds_local = 0.9 * min(spot-spot_rng[x0],spot_rng[x0+1]-spot)
 
-                grid= np.zeros((s_steps+2,t_steps+1))
+                spot_pre= spot -ds_local
 
-                for i in range(s_steps+2):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
+                spot_aft = spot + ds_local
+
+                spot_pre_index = x0+1
+
+                spot_rng=np.insert(spot_rng,x0+1,[spot_pre,spot,spot_aft])
+
+                spot_index = x0+2
+
+                grid= np.zeros((s_steps+4,t_steps+1))
+
+                for i in range(s_steps+4):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
 
                     if cp=='c':
 
@@ -727,30 +739,30 @@ class Vanilla(Option):
 
                     F_t = spot_rng[s_steps+1] * math.exp((rate_c-rate_a) * (T-j*dt))
 
-                    if cp=='c':
+                    if cp=='c':   # if the option is a call
 
                         grid[0,j] = 0
 
                         if style =='a':
-                            grid[s_steps+1,j] = max(spot_rng[s_steps+1] - K,0)
+                            grid[s_steps+3,j] = max(spot_rng[s_steps+1] - K,0)
                         else:
-                            grid[s_steps+1,j] = max(F_t - K,0) * DF_t
+                            grid[s_steps+3,j] = max(F_t - K,0) * DF_t
                     
-                    else:
+                    else:   # if the option is a put
                         if style =='a':
                             grid[0,j] = max(K,0)
                         else:
                             grid[0,j] = max(K,0)* DF_t
 
-                        grid[s_steps+1,j] = 0
+                        grid[s_steps+3,j] = 0
                 
                 for t in range(t_steps-1,-1,-1):  # from t=t_step-1 to t=0
 
-                    A = np.zeros((s_steps,s_steps))
+                    A = np.zeros((s_steps+2,s_steps+2))  
 
-                    B = np.zeros((1,s_steps))
+                    B = np.zeros((1,s_steps+2))
 
-                    for i in range(1,s_steps+1):   # index from 1 to s_steps
+                    for i in range(1,s_steps+3):   # index from 1 to s_steps+2
 
                         if i==1 and cp=='c':  # Van Neuman boundary condition=0 and secondary order condition=0 for call
 
@@ -771,8 +783,8 @@ class Vanilla(Option):
                             ds_up = spot_rng[i+1] -s_i
                             ds_down = s_i - spot_rng[i-1]
 
-                            a = 0.5* (vol**2) * s_i**2 /(ds_down **2)- (rate_c-rate_a)*s_i / (ds_up+ds_down)
-                            b = -1/dt - 0.5*(vol**2)*(s_i**2)/ds_down*(-1/ds_up - 1/ds_down)- rate_c
+                            a = 0.5* (vol**2) * (s_i**2) /(ds_down **2)- (rate_c-rate_a)*s_i / (ds_up+ds_down)
+                            b = -1/dt - 0.5*(vol**2)*(s_i**2)/ds_down*(1/ds_up + 1/ds_down)- rate_c
                             c = 0.5 * (vol**2) * (s_i**2)/(ds_up* ds_down) + (rate_c - rate_a)*s_i/(ds_up+ds_down)
                             d =- 1/ dt
                         
@@ -785,7 +797,7 @@ class Vanilla(Option):
 
                             A[i-1,i]=c
         
-                        elif i == s_steps:
+                        elif i == s_steps+2:
 
                             B[0,i-1]=d*grid[i,t+1]-c*grid[i+1,t]
 
@@ -804,7 +816,7 @@ class Vanilla(Option):
 
                     if style == 'a':
 
-                        for i in range(s_steps):
+                        for i in range(s_steps+2):
 
                             if cp == 'c':
 
@@ -814,9 +826,9 @@ class Vanilla(Option):
 
                                 V[i] = max(V[i], K-spot_rng[i+1])
 
-                    grid[1:s_steps+1,t] = V[:,0]
+                    grid[1:s_steps+3,t] = V[:,0]
 
-            else:
+            else:   # if the spot just falls on the even grid node
 #############################################################################################################################
 
                 grid= np.zeros((s_steps+1,t_steps+1))
@@ -928,89 +940,50 @@ class Vanilla(Option):
                     grid[1:s_steps,t] = V[:,0]
 #########################################################################################################
 
-            x0 = spot/ds
+            if spot_index == 0:
 
-            x1 = int(x)
+                pl = grid[spot_index,0]
+                pl_up = grid[spot_index+1,0]
 
-            if abs(x0-x1)>0.000001: # if the spot does not fall on the node of even grid, add spot in between two nodes
+                ds_up = spot_rng[spot_index+1]-spot_rng[spot_index]
 
-                x = x1 + 1
-            
-            else:  # spot falls on node of even grid
+                delta = (pl_up-pl) / ds_up
 
-                x = x1
-
-            x2 = x+1
-
-            if x ==0:
-
-                pl1 = grid[x,0]
-                pl2 = grid[x+1,0]
-
-                pl = pl1
-                delta = (pl2-pl1)/(spot_rng[x+1]-spot_rng[x])
                 gamma = 0
 
-            elif x == 
+            elif (spot_index == s_steps and spot_index == x0) or spot_index == s_steps+3:
 
-            if x < 1:
+                pl = grid[spot_index,0]
+                pl_down = grid[spot_index-1,0]
 
-                pl1 = grid[x1,0]
-                pl2 = grid[x2,0]
+                ds_down =  spot_rng[spot_index]-spot_rng[spot_index-1]
 
-                delta = (pl2-pl1)/ds
+                delta = (pl - pl_down)/ds_down
 
-                gamma1= 0
-                gamma2= (grid[x2+1,0]+grid[x1,0]-2*grid[x2,0])/(ds**2)
-                gamma = (gamma2-gamma1)/(x2-x1) *(x-x1) + gamma1
-
-                pl_slope = (pl2-pl1)/(x2-x1)
-
-            elif x1 == s_steps:
-
-                pl1 = grid[x1,0]
-                pl2 = grid[x1-1,0]
-
-                delta = (pl1-pl2)/ds
                 gamma = 0
-
-                pl_slope = (pl1-pl2)/1
-            
-            elif x2 == s_steps:
-
-                pl1 = grid[x1,0]
-                pl2 = grid[x2,0]
-
-                delta = (pl2-pl1)/ds
-
-                gamma1 = (grid[x1+1,0]+grid[x1-1,0]-2*grid[x1,0])/(ds**2)
-                gamma2 = 0
-                gamma = (gamma2-gamma1)/(x2-x1) *(x-x1) + gamma1
-
-                pl_slope = (pl2-pl1)/(x2-x1)
 
             else:
 
-                pl1 = grid[x1,0]
-                pl2 = grid[x2,0]
+                pl = grid[spot_index,0]
 
-                delta1 = (grid[x1+1,0]-grid[x1-1,0])/(2*ds)
-                delta2 = (grid[x2+1,0]-grid[x2-1,0])/(2*ds)
+                pl_up = grid[spot_index+1,0]
 
-                gamma1 = (grid[x1+1,0]+grid[x1-1,0]-2*grid[x1,0])/(ds**2)
-                gamma2 = (grid[x2+1,0]+grid[x2-1,0]-2*grid[x2,0])/(ds**2)
+                pl_down = grid[spot_index-1,0]
+
+                ds_up = spot_rng[spot_index+1]-spot_rng[spot_index]
+
+                ds_down =  spot_rng[spot_index]-spot_rng[spot_index-1]
+
                 
-                delta = (delta2-delta1)/(x2-x1) *(x-x1) + delta1
-                gamma = (gamma2-gamma1)/(x2-x1) *(x-x1) + gamma1
+                if spot_index != x0:
+                    delta = (grid[spot_index+2,0]-grid[spot_index-2,0])/ds
+                else: 
+                    delta = (pl_up-pl_down)/(ds_up+ds_down)
+                delta_up = (pl_up - pl)/ds_up
 
-                pl_slope = (pl2-pl1)/(x2-x1)
+                delta_down = (pl - pl_down)/ ds_down
 
-            #pl = pl_slope * (x-x1) + pl1  # native interpolation
-
-            pl= pl1 + delta * (spot-spot_rng[x1]) + 0.5* gamma *(spot-spot_rng[x1])**2
-
-            # print('ds=%.4f, x1=%.4f, x=%.4f, x2=%.4f' % (ds,x1,x,x2))
-            # print('pl1= %.6f, pl2= %.6f, pl=%.6f' % (pl1, pl2, pl))
+                gamma = (delta_up - delta_down)/ds_down
 
         
         if greeks.lower() == 'delta':
@@ -1129,8 +1102,8 @@ class Vanilla(Option):
             y_diff = greeks_value_diff
             
         y_label = greeks.lower()
-        y_reg = np.polyfit(spot_rng,y,6)
-        y_fit = np.polyval(y_reg,spot_rng)      
+        #y_reg = np.polyfit(spot_rng,y,6)
+        #y_fit = np.polyval(y_reg,spot_rng)      
 
         plt.figure()
 
@@ -1140,8 +1113,8 @@ class Vanilla(Option):
 
         if model_alt is not None:
 
-            y_reg_alt = np.polyfit(spot_rng,y_alt,6)
-            y_fit_alt = np.polyval(y_reg_alt,spot_rng)
+            #y_reg_alt = np.polyfit(spot_rng,y_alt,6)
+            #y_fit_alt = np.polyval(y_reg_alt,spot_rng)
 
             if showdiff == False:   
                 plt.plot(spot_rng,y_alt,label=y_label + ': model2')
@@ -1182,10 +1155,10 @@ def main_vanilla():
 
     op._spot_max_factor_pde=5
 
-    op._ssteps_pde=200
-    op._tsteps_pde=50
+    op._ssteps_pde=100
+    op._tsteps_pde=100
 
-    op.spot_ladder(0,100,5,vol,rate_usd,div_spy,'volga',op.pricing_crr,False)
+    op.spot_ladder(1.126992,150.332123,2,vol,rate_usd,div_spy,'delta',op.pricing_pde,False)
 
 if __name__ =='__main__':
 
