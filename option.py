@@ -58,6 +58,8 @@ class Vanilla(Option):
         self._vega_bump=0.01
         self._vega_bump_is_percent=False
         self._theta_bump=1/365
+        self._rho_bump = 0.01
+        self._rho_bump_is_percent=False
         
 
         self._vanna_dvega = False
@@ -71,7 +73,7 @@ class Vanilla(Option):
         self._ssteps_pde = 200
         self._spot_max_factor_pde = 3
 
-        self._spot_minimum = 10e-4
+        self._spot_minimum = 10e-8
 
         if self._style.lower() == 'e':
 
@@ -106,7 +108,7 @@ class Vanilla(Option):
 
         return fwd
 
-    def pricing_bsm(self,spot,vol,rate_c,rate_a):
+    def pricing_bsm(self,spot,vol,rate_c,rate_a,greeks='pl'):
 
         if spot<=0:
 
@@ -115,6 +117,14 @@ class Vanilla(Option):
         
         fwd = self.forward(spot,rate_c,rate_a)
 
+        if self._cp.lower() == 'call' or self._cp.lower()=='c':
+
+            cp = 'c'
+
+        else:
+
+            cp = 'p'
+
         Q = self._quantity
 
         T = self._maturity
@@ -122,25 +132,70 @@ class Vanilla(Option):
         D = math.exp(-rate_c*T)
 
         N=norm.cdf     # standard normal distribution cumulative function
+        N_pdf = norm.pdf
 
         d1 = (math.log(fwd/K)+0.5*vol**2*T)/(vol*math.sqrt(T)) 
         d2 = d1-vol*math.sqrt(T)
 
-        call_price = D*(N(d1)*fwd - N(d2)*K) * Q
+        if greeks.lower() =='delta':
 
-        put_price = D*(N(-d2)*K-N(-d1)*fwd) * Q
+            call_delta = N(d1) * math.exp(-rate_a*T)
+            put_delta = (N(d1)-1) * math.exp(-rate_a*T)
 
-        if self._cp == 'call':
+            if cp =='c':
 
-            return call_price
+                 return call_delta * Q
+            else:
+
+                return put_delta * Q
+
+        elif greeks.lower()=='gamma':
+
+            gamma = math.exp(-rate_a*T)*N_pdf(d1) / (spot*vol*math.sqrt(T))
+
+            return gamma * Q
+
+        elif greeks.lower()=='vega':
+
+            vega = spot*N_pdf(d1)*math.sqrt(T) * math.exp(-rate_a*T)
+
+            return vega * Q
         
-        elif self._cp =='put':
+        elif greeks.lower()=='theta':
 
-            return put_price
-        
+            call_theta = (-spot*N_pdf(d1)*vol*math.exp(-rate_a*T) /(2*math.sqrt(T)) - rate_c*K*math.exp(-rate_c*T)*N(d2)+rate_a*spot*math.exp(-rate_a*T)*N(d1))*self._theta_bump
+            put_theta = (-spot*N_pdf(d1)*vol*math.exp(-rate_a*T) /(2*math.sqrt(T)) + rate_c*K*math.exp(-rate_c*T)*N(-d2)-rate_a*spot*math.exp(-rate_a*T)*N(-d1))*self._theta_bump
+
+            if cp =='c':
+
+                 return call_theta * Q 
+            else:
+
+                return put_theta * Q
+
+        elif greeks.lower()=='rho':
+
+            call_rho = K*T*math.exp(-rate_c*T) * N(d2)
+            put_rho = -K*T*math.exp(-rate_c*T) * N(-d2)
+
+            if cp =='c':
+
+                 return call_rho * Q
+            else:
+
+                return put_rho * Q
+
         else:
 
-            return None
+            call_price = D*(N(d1)*fwd - N(d2)*K) 
+            put_price = D*(N(-d2)*K-N(-d1)*fwd)
+
+            if cp =='c':
+
+                 return call_price * Q
+            else:
+
+                return put_price * Q
 
     def delta(self,spot,vol,rate_c,rate_a,model_alt=None):
 
@@ -161,6 +216,10 @@ class Vanilla(Option):
         elif model == self.pricing_pde:
 
             delta_value = self.pricing_pde(spot,vol,rate_c,rate_a,'delta')
+
+        elif model == self.pricing_bsm:
+
+            delta_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'delta')
 
         else:       
 
@@ -202,6 +261,10 @@ class Vanilla(Option):
 
             gamma_value = self.pricing_pde(spot,vol,rate_c,rate_a,'gamma')
 
+        elif model == self.pricing_bsm:
+
+            gamma_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'gamma')
+
         else:    
             price = model(spot,vol,rate_c,rate_a)
 
@@ -236,23 +299,65 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        price = model(spot,vol,rate_c,rate_a)
+        if model == self.pricing_bsm:
 
-        bumpvalue=self._vega_bump
+            vega_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'vega')
 
-        if self._vega_bump_is_percent == True:
+        else: 
 
-            vol_up = vol * (1+bumpvalue/100)
-            
-        else:                                 # then the bumpvalue is absolute
+            price = model(spot,vol,rate_c,rate_a)
 
-            vol_up = vol + bumpvalue
-            
-        price_up = model(spot,vol_up,rate_c,rate_a)
+            bumpvalue=self._vega_bump
 
-        vega_value = (price_up- price)/(vol_up-vol)
+            if self._vega_bump_is_percent == True:
+
+                vol_up = vol * (1+bumpvalue/100)
+                
+            else:                                 # then the bumpvalue is absolute
+
+                vol_up = vol + bumpvalue
+                
+            price_up = model(spot,vol_up,rate_c,rate_a)
+
+            vega_value = (price_up- price)/(vol_up-vol)
         
         return vega_value
+
+    def rho(self,spot,vol,rate_c,rate_a,model_alt=None):
+
+        if model_alt is None:
+
+            model = self._default_model
+        else:
+            model = model_alt
+
+        if spot<=0:
+
+            spot = self._spot_minimum
+
+        if model == self.pricing_bsm:
+
+            rho_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'rho')
+
+        else:
+
+            price = model(spot,vol,rate_c,rate_a)
+
+            bumpvalue=self._rho_bump
+
+            if self._rho_bump_is_percent == True:
+
+                rate_c_up = rate_c * (1+bumpvalue/100)
+                
+            else:                                 # then the bumpvalue is absolute
+
+                rate_c_up = rate_c + bumpvalue
+                
+            price_up = model(spot,vol,rate_c_up,rate_a)
+
+            rho_value = (price_up- price)/(rate_c_up-rate_c)
+        
+        return rho_value
     
     def theta(self,spot,vol,rate_c,rate_a,model_alt=None):
 
@@ -266,17 +371,23 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        price = model(spot,vol,rate_c,rate_a)
+        if model == self.pricing_bsm:
 
-        bumpvalue = self._theta_bump
+            theta_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'theta')
+        
+        else:
 
-        self._maturity= self._maturity - bumpvalue
+            price = model(spot,vol,rate_c,rate_a)
 
-        price_shift = model(spot,vol,rate_c,rate_a)
+            bumpvalue = self._theta_bump
 
-        theta_value = (price_shift- price)
+            self._maturity= self._maturity - bumpvalue
 
-        self._maturity= self._maturity + bumpvalue
+            price_shift = model(spot,vol,rate_c,rate_a)
+
+            theta_value = (price_shift- price)
+
+            self._maturity= self._maturity + bumpvalue
         
         return theta_value
 
@@ -707,283 +818,214 @@ class Vanilla(Option):
             spot_rng = np.linspace(0,spot_max,s_steps+1)
 #############################################################################################################################
 
-            if abs(x-x0) > 0.00001:
+            grid= np.zeros((s_steps+1,t_steps+1))
 
-                ds_local = 0.9 * min(spot-spot_rng[x0],spot_rng[x0+1]-spot)
+            for i in range(s_steps+1):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
 
-                spot_pre= spot -ds_local
+                if cp=='c':
 
-                spot_aft = spot + ds_local
+                    grid[i,t_steps] = max (spot_rng[i]-K,0) 
 
-                spot_pre_index = x0+1
+                else:
+                    grid[i,t_steps] = max (K-spot_rng[i],0) 
+    
 
-                spot_rng=np.insert(spot_rng,x0+1,[spot_pre,spot,spot_aft])
+            for j in range(t_steps): # boundry condition at spot =0 and spot = s_max
 
-                spot_index = x0+2
+                DF_t =  math.exp(-rate_c*(T-j*dt))
 
-                grid= np.zeros((s_steps+4,t_steps+1))
+                F_t = spot_rng[s_steps] * math.exp((rate_c-rate_a) * (T-j*dt))
 
-                for i in range(s_steps+4):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
+                if cp=='c':
 
-                    if cp=='c':
+                    grid[0,j] = 0
 
-                        grid[i,t_steps] = max (spot_rng[i]-K,0) 
-
+                    if style =='a':
+                        grid[s_steps,j] = max(spot_rng[s_steps] - K,0)
                     else:
-                        grid[i,t_steps] = max (K-spot_rng[i],0) 
-
+                        grid[s_steps,j] = max(F_t - K,0) * DF_t
                 
-                for j in range(t_steps): # boundry condition at spot =0 and spot = s_max
+                else:
+                    if style =='a':
+                        grid[0,j] = max(K,0)
+                    else:
+                        grid[0,j] = max(K,0)* DF_t
 
-                    DF_t =  math.exp(-rate_c*(T-j*dt))
+                    grid[s_steps,j] = 0
 
-                    F_t = spot_rng[s_steps+1] * math.exp((rate_c-rate_a) * (T-j*dt))
+            for t in range(t_steps-1,-1,-1):  # from t=t_step-1 to t=0
 
-                    if cp=='c':   # if the option is a call
+                A = np.zeros((s_steps-1,s_steps-1))
 
-                        grid[0,j] = 0
+                B = np.zeros((1,s_steps-1))
 
-                        if style =='a':
-                            grid[s_steps+3,j] = max(spot_rng[s_steps+1] - K,0)
-                        else:
-                            grid[s_steps+3,j] = max(F_t - K,0) * DF_t
+                for i in range(1,s_steps):   # index from 1 to s_steps-1
+
+                    #a = 0.5* (vol**2) * (i**2)
+                    #b = -1/dt - (vol**2)*(i**2)-(rate_c-rate_a)*i - rate_c
+                    #c = 0.5 * (vol**2) * (i**2) + (rate_c - rate_a)*i
+                    #d =- 1/ dt
+
+                    if i==1 and cp=='c':  # Van Neuman boundary condition=0 and secondary order condition=0 for call
+
+                        a=0
+                        b=-1/dt-rate_c
+                        c=0
+                        d=-1/dt
+
+                    elif i==1 and cp=='p': # Van Neuman boundary condition=-exp(-q*T) and secondary order condition=0 for call
+                        a=0
+                        b=-1/dt-rate_c
+                        c=0
+                        d=-1/dt
+
+                    else:   
+
+                        a = 0.5* (vol**2) * (i**2) - 0.5 * (rate_c-rate_a)*i
+                        b = -1/dt - (vol**2)*(i**2)- rate_c
+                        c = 0.5 * (vol**2) * (i**2) + 0.5* (rate_c - rate_a)*i
+                        d =- 1/ dt
                     
-                    else:   # if the option is a put
-                        if style =='a':
-                            grid[0,j] = max(K,0)
+                    # construct matrix A and B in AX=B
+                    if i == 1:
+                        if cp=='c':
+                            B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  
                         else:
-                            grid[0,j] = max(K,0)* DF_t
+                            B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i] * math.exp(-rate_a*T)
 
-                        grid[s_steps+3,j] = 0
-                
-                for t in range(t_steps-1,-1,-1):  # from t=t_step-1 to t=0
+                        A[i-1,i]=c
+    
+                    elif i == s_steps-1:
 
-                    A = np.zeros((s_steps+2,s_steps+2))  
+                        B[0,i-1]=d*grid[i,t+1]-c*grid[i+1,t]
 
-                    B = np.zeros((1,s_steps+2))
-
-                    for i in range(1,s_steps+3):   # index from 1 to s_steps+2
-
-                        if i==1 and cp=='c':  # Van Neuman boundary condition=0 and secondary order condition=0 for call
-
-                            a=0
-                            b=-1/dt-rate_c
-                            c=0
-                            d=-1/dt
-
-                        elif i==1 and cp=='p': # Van Neuman boundary condition=-1 and secondary order condition=0 for put
-                            a=0
-                            b=-1/dt-rate_c
-                            c=0
-                            d=-1/dt
-
-                        else: 
-
-                            s_i = spot_rng[i]  
-                            ds_up = spot_rng[i+1] -s_i
-                            ds_down = s_i - spot_rng[i-1]
-
-                            a = 0.5* (vol**2) * (s_i**2) /(ds_down **2)- (rate_c-rate_a)*s_i / (ds_up+ds_down)
-                            b = -1/dt - 0.5*(vol**2)*(s_i**2)/ds_down*(1/ds_up + 1/ds_down)- rate_c
-                            c = 0.5 * (vol**2) * (s_i**2)/(ds_up* ds_down) + (rate_c - rate_a)*s_i/(ds_up+ds_down)
-                            d =- 1/ dt
-                        
-                        # construct matrix A and B in AX=B
-                        if i == 1:
-                            if cp=='c':
-                                B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  
-                            else:
-                                B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i]
-
-                            A[i-1,i]=c
-        
-                        elif i == s_steps+2:
-
-                            B[0,i-1]=d*grid[i,t+1]-c*grid[i+1,t]
-
-                            A[i-1,i-2] =a
-
-                        else:
-
-                            B[0,i-1]=d*grid[i,t+1]
-
-                            A[i-1,i-2] =a
-                            A[i-1,i]=c
-
-                        A[i-1,i-1]=b
-
-                    V = np.linalg.solve(A,B.T)
-
-                    if style == 'a':
-
-                        for i in range(s_steps+2):
-
-                            if cp == 'c':
-
-                                V[i] = max(V[i], spot_rng[i+1]-K)
-
-                            else:
-
-                                V[i] = max(V[i], K-spot_rng[i+1])
-
-                    grid[1:s_steps+3,t] = V[:,0]
-
-            else:   # if the spot just falls on the even grid node
-#############################################################################################################################
-
-                grid= np.zeros((s_steps+1,t_steps+1))
-
-                for i in range(s_steps+1):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
-
-                    if cp=='c':
-
-                        grid[i,t_steps] = max (spot_rng[i]-K,0) 
+                        A[i-1,i-2] =a
 
                     else:
-                        grid[i,t_steps] = max (K-spot_rng[i],0) 
-        
 
-                for j in range(t_steps): # boundry condition at spot =0 and spot = s_max
+                        B[0,i-1]=d*grid[i,t+1]
 
-                    DF_t =  math.exp(-rate_c*(T-j*dt))
+                        A[i-1,i-2] =a
+                        A[i-1,i]=c
 
-                    F_t = spot_rng[s_steps] * math.exp((rate_c-rate_a) * (T-j*dt))
+                    A[i-1,i-1]=b
 
-                    if cp=='c':
+                V = np.linalg.solve(A,B.T)
 
-                        grid[0,j] = 0
+                if style == 'a':
 
-                        if style =='a':
-                            grid[s_steps,j] = max(spot_rng[s_steps] - K,0)
-                        else:
-                            grid[s_steps,j] = max(F_t - K,0) * DF_t
-                    
-                    else:
-                        if style =='a':
-                            grid[0,j] = max(K,0)
-                        else:
-                            grid[0,j] = max(K,0)* DF_t
+                    for i in range(s_steps-1):
 
-                        grid[s_steps,j] = 0
+                        if cp == 'c':
 
-                for t in range(t_steps-1,-1,-1):  # from t=t_step-1 to t=0
-
-                    A = np.zeros((s_steps-1,s_steps-1))
-
-                    B = np.zeros((1,s_steps-1))
-
-                    for i in range(1,s_steps):   # index from 1 to s_steps-1
-
-                        #a = 0.5* (vol**2) * (i**2)
-                        #b = -1/dt - (vol**2)*(i**2)-(rate_c-rate_a)*i - rate_c
-                        #c = 0.5 * (vol**2) * (i**2) + (rate_c - rate_a)*i
-                        #d =- 1/ dt
-
-                        if i==1 and cp=='c':  # Van Neuman boundary condition=0 and secondary order condition=0 for call
-
-                            a=0
-                            b=-1/dt-rate_c
-                            c=0
-                            d=-1/dt
-
-                        elif i==1 and cp=='p': # Van Neuman boundary condition=-1 and secondary order condition=0 for call
-                            a=0
-                            b=-1/dt-rate_c
-                            c=0
-                            d=-1/dt
-
-                        else:   
-
-                            a = 0.5* (vol**2) * (i**2) - 0.5 * (rate_c-rate_a)*i
-                            b = -1/dt - (vol**2)*(i**2)- rate_c
-                            c = 0.5 * (vol**2) * (i**2) + 0.5* (rate_c - rate_a)*i
-                            d =- 1/ dt
-                        
-                        # construct matrix A and B in AX=B
-                        if i == 1:
-                            if cp=='c':
-                                B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  
-                            else:
-                                B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i]
-
-                            A[i-1,i]=c
-        
-                        elif i == s_steps-1:
-
-                            B[0,i-1]=d*grid[i,t+1]-c*grid[i+1,t]
-
-                            A[i-1,i-2] =a
+                            V[i] = max(V[i], spot_rng[i+1]-K)
 
                         else:
 
-                            B[0,i-1]=d*grid[i,t+1]
+                            V[i] = max(V[i], K-spot_rng[i+1])
 
-                            A[i-1,i-2] =a
-                            A[i-1,i]=c
+                grid[1:s_steps,t] = V[:,0]
 
-                        A[i-1,i-1]=b
+            # plt.figure()
+            # plt.plot(spot_rng,grid[0:s_steps+1,0] ,label='pde test')
+            # plt.show()
 
-                    V = np.linalg.solve(A,B.T)
 
-                    if style == 'a':
-
-                        for i in range(s_steps-1):
-
-                            if cp == 'c':
-
-                                V[i] = max(V[i], spot_rng[i+1]-K)
-
-                            else:
-
-                                V[i] = max(V[i], K-spot_rng[i+1])
-
-                    grid[1:s_steps,t] = V[:,0]
 #########################################################################################################
 
-            if spot_index == 0:
+            if abs(x-x0)<= self._spot_minimum/1000 : # spot falls on node
 
-                pl = grid[spot_index,0]
-                pl_up = grid[spot_index+1,0]
+                if spot_index == 0:
 
-                ds_up = spot_rng[spot_index+1]-spot_rng[spot_index]
+                    y_up = grid[spot_index+2,0]
 
-                delta = (pl_up-pl) / ds_up
+                    y = grid[spot_index+1,0]
 
-                gamma = 0
+                    y_down = grid[spot_index,0]
 
-            elif (spot_index == s_steps and spot_index == x0) or spot_index == s_steps+3:
+                    pl = y_down
 
-                pl = grid[spot_index,0]
-                pl_down = grid[spot_index-1,0]
+                    delta = (y - y_down) /ds
 
-                ds_down =  spot_rng[spot_index]-spot_rng[spot_index-1]
+                elif spot_index == s_steps:
 
-                delta = (pl - pl_down)/ds_down
+                    y_up = grid[spot_index,0]
 
-                gamma = 0
+                    y = grid[spot_index-1,0]
 
-            else:
+                    y_down = grid[spot_index-2,0]
 
-                pl = grid[spot_index,0]
+                    pl = y_up
 
-                pl_up = grid[spot_index+1,0]
+                    delta = (y_up - y)/ds
 
-                pl_down = grid[spot_index-1,0]
+                else:
 
-                ds_up = spot_rng[spot_index+1]-spot_rng[spot_index]
+                    y_up = grid[spot_index+1,0]
 
-                ds_down =  spot_rng[spot_index]-spot_rng[spot_index-1]
+                    y = grid[spot_index,0]
 
+                    y_down = grid[spot_index-1,0]
+
+                    pl = y
+
+                    delta = (y_up - y_down)/(ds*2)
+
+                gamma = (y_up -2*y + y_down)/(ds**2)
+
+                    
+            else:  # spot falls in between nodes
+
+                pl0 = grid[x0,0]
+                pl1 = grid[x0+1,0]
                 
-                if spot_index != x0:
-                    delta = (grid[spot_index+2,0]-grid[spot_index-2,0])/ds
-                else: 
-                    delta = (pl_up-pl_down)/(ds_up+ds_down)
-                delta_up = (pl_up - pl)/ds_up
+                if x0 == 0:
 
-                delta_down = (pl - pl_down)/ ds_down
+                    if cp == 'c':
 
-                gamma = (delta_up - delta_down)/ds_down
+                        delta0 = 0
+
+                    else:
+
+                        delta0 = - math.exp(-rate_a*T)
+
+                    # delta0 = (grid[x0+1,0]- grid[x0,0])/ds
+                    delta1 = (grid[x0+2,0]- grid[x0,0])/(2*ds)
+
+                    gamma0 = 0 
+                    gamma1 = (grid[x0+2,0] - 2*grid[x0+1,0] + grid[x0,0]) / (ds**2)
+
+                elif x0 == s_steps -1:
+
+                    delta0 = (grid[x0+1,0]- grid[x0-1,0])/(2*ds)
+                    # delta1 = (grid[x0+1,0]- grid[x0,0])/(2*ds)
+
+                    if cp == 'c':
+
+                        delta1 = math.exp(-rate_a*T)
+
+                    else:
+
+                        delta1 = 0
+
+                    gamma0 = (grid[x0+1,0] - 2*grid[x0,0] + grid[x0-1,0]) / (ds**2)
+                    gamma1 = 0
+
+                else:
+
+                    delta0 = (grid[x0+1,0]- grid[x0-1,0])/(2*ds)
+                    delta1 = (grid[x0+2,0]- grid[x0,0])/(2*ds)
+                    
+                    gamma0 = (grid[x0+1,0] - 2*grid[x0,0] + grid[x0-1,0]) / (ds**2)
+                    gamma1 = (grid[x0+2,0] - 2*grid[x0+1,0] + grid[x0,0]) / (ds**2)
+
+                gamma =gamma0 + (gamma1 - gamma0) * (x-x0)
+
+                #delta = delta0 + gamma * (spot - spot_rng[x0])  # delta from Taylor expansion using gamma value
+                delta = delta0+(x-x0)*(delta1-delta0)   # using naive interpolation
+
+                pl = pl0 + (x-x0)* (pl1-pl0) 
+                # pl = pl0 + delta * (spot - spot_rng[x0]) + 0.5 * gamma * (spot - spot_rng[x0])**2
 
         
         if greeks.lower() == 'delta':
@@ -1078,6 +1120,14 @@ class Vanilla(Option):
                 if model_alt is not None:
 
                     value_alt =self.vanna(s,vol,rate_c,rate_a,model_alt)
+
+            elif greeks.lower()=='rho':
+
+                value = self.rho(s,vol,rate_c,rate_a)
+
+                if model_alt is not None:
+
+                    value_alt =self.rho(s,vol,rate_c,rate_a,model_alt)
           
             greeks_value.append(value)
 
@@ -1086,6 +1136,8 @@ class Vanilla(Option):
             if model_alt is not None:
 
                 value_diff = value_alt - value
+
+                # value_diff_per = (value_diff)/value * 100
 
                 greeks_value_alt.append(value_alt)
 
@@ -1146,19 +1198,22 @@ def main_vanilla():
 
     op = Vanilla(underlying,assetclass,T,K,'e',cp,quantity)
 
-    op._nsteps_crr=500
-    op._npaths_mc=10000000
+    op._nsteps_crr=300
+    op._npaths_mc=10000
     op._nsteps_mc=200
     op._rnd_seed=10000
     op._vega_bump_is_percent = False
     op._vega_bump=0.01
 
+    op._delta_bump=0.001
+
+
     op._spot_max_factor_pde=5
 
-    op._ssteps_pde=100
+    op._ssteps_pde=150
     op._tsteps_pde=100
 
-    op.spot_ladder(1.126992,150.332123,2,vol,rate_usd,div_spy,'delta',op.pricing_pde,False)
+    op.spot_ladder(0,150,1,vol,rate_usd,div_spy,'vanna',op.pricing_crr,False)
 
 if __name__ =='__main__':
 
