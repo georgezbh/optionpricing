@@ -1353,7 +1353,7 @@ class Vanilla(Option):
                 progress= int(i/n*100)
                 print('Spot = %f, in progress %d complete' % (s, progress))
            
-            if greeks.lower() == 'pl':
+            if greeks.lower() == 'pl' or greeks.lower() == 'mv':
 
                 value = model(s,vol,rate_c,rate_a)
                 
@@ -1449,7 +1449,7 @@ class Vanilla(Option):
         #y_reg = np.polyfit(spot_rng,y,6)
         #y_fit = np.polyval(y_reg,spot_rng)      
 
-        plt.figure()
+        plt.figure(figsize=(14,10))
 
         if showdiff == False:
             plt.plot(spot_rng,y,label=y_label+': model1')
@@ -1468,8 +1468,8 @@ class Vanilla(Option):
 
         plt.xlabel('spot')
         plt.ylabel(y_label)
-        plt.legend(loc=1)
-        plt.title('Vanilla option') 
+        plt.legend(loc='best')
+        plt.title('Vanilla option Greeks') 
         plt.show()
 
         return None
@@ -1491,13 +1491,15 @@ def main_vanilla():
     op = Vanilla(underlying,assetclass,T,K,'E',cp,quantity)
 
     op._nsteps_crr=100
-    op._npaths_mc=30000
+    op._npaths_mc=10000
     op._nsteps_mc=200
     op._rnd_seed=10000
     op._vega_bump_is_percent = False
     op._vega_bump=0.05
 
-    op._delta_bump=0.01
+    op._rnd_seed = 6666
+
+    op._delta_bump=1
 
 
     op._spot_max_factor_pde=5
@@ -1507,7 +1509,7 @@ def main_vanilla():
 
     op._displayprogress = True
 
-    op.spot_ladder(0,150,1,vol,rate_usd,div_spy,'pl',op.pricing_pde,True)
+    op.spot_ladder(1,150,1,vol,rate_usd,div_spy,'vega',op.pricing_pde,False)
 
 if __name__ =='__main__':
 
