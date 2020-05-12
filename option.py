@@ -1,4 +1,5 @@
 'option class pricing module'
+'with Black Scholes, Cox Tree, Monte Carlo and PDE pricing methods'
 
 __author__ = 'George Zhao'
 
@@ -14,7 +15,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from scipy.stats import norm
-
 
 
 class Option(object):
@@ -60,7 +60,6 @@ class Vanilla(Option):
         self._theta_bump=1/365
         self._rho_bump = 0.01
         self._rho_bump_is_percent=False
-        
 
         self._vanna_dvega = False
     
@@ -73,7 +72,9 @@ class Vanilla(Option):
         self._ssteps_pde = 200
         self._spot_max_factor_pde = 3
 
-        self._spot_minimum = 10e-8
+        self._spot_minimum = 10e-6
+
+        self._displayprogress = False
 
         if self._style.lower() == 'e':
 
@@ -213,9 +214,13 @@ class Vanilla(Option):
 
             delta_value = self.pricing_crr(spot,vol,rate_c,rate_a,'delta')
         
-        elif model == self.pricing_pde:
+        elif model == self.pricing_pde: 
 
             delta_value = self.pricing_pde(spot,vol,rate_c,rate_a,'delta')
+
+        elif model == self.pricing_pde_alt: 
+
+            delta_value = self.pricing_pde_alt(spot,vol,rate_c,rate_a,'delta')
 
         elif model == self.pricing_bsm:
 
@@ -260,6 +265,10 @@ class Vanilla(Option):
         elif model == self.pricing_pde:
 
             gamma_value = self.pricing_pde(spot,vol,rate_c,rate_a,'gamma')
+
+        elif model == self.pricing_pde_alt: 
+
+            gamma_value = self.pricing_pde_alt(spot,vol,rate_c,rate_a,'gamma')
 
         elif model == self.pricing_bsm:
 
@@ -481,7 +490,7 @@ class Vanilla(Option):
 
         if spot<=0:
 
-            spot = self._spot_minimum
+            spot = 10e-6
 
         dt = T / n_steps
         S=[spot]
@@ -499,7 +508,7 @@ class Vanilla(Option):
 
         if spot<=0:
 
-            spot = self._spot_minimum
+            spot = 10e-6
 
         sigma = math.sqrt(T)
 
@@ -609,7 +618,6 @@ class Vanilla(Option):
         else:
 
             return None
-
 
 
     def pricing_crr(self,spot,vol,rate_c,rate_a,greeks='pl'):  # pricing option using binomial tree, time steps is n_steps
@@ -783,7 +791,7 @@ class Vanilla(Option):
 
             if cp=='c':
 
-                pl = max(fwd-K,0) * exp(-rate_c*T)
+                pl = max(fwd-K,0) * math.exp(-rate_c*T)
 
                 if style =='a':
                     
@@ -809,11 +817,19 @@ class Vanilla(Option):
         
             ds = spot_max / s_steps
 
+            onnode = True
+
             x = spot/ds
 
             x0 = int(x)
+            x1 = x0+1
 
-            spot_index =x0
+            if x1-x <= 10e-8:
+                spot_index = x1   # spot falls on x1
+            elif x-x0 <= 10e-8:
+                spot_index = x0   # spot falls on x0
+            else:
+                onnode=False 
 
             spot_rng = np.linspace(0,spot_max,s_steps+1)
 #############################################################################################################################
@@ -861,11 +877,6 @@ class Vanilla(Option):
 
                 for i in range(1,s_steps):   # index from 1 to s_steps-1
 
-                    #a = 0.5* (vol**2) * (i**2)
-                    #b = -1/dt - (vol**2)*(i**2)-(rate_c-rate_a)*i - rate_c
-                    #c = 0.5 * (vol**2) * (i**2) + (rate_c - rate_a)*i
-                    #d =- 1/ dt
-
                     if i==1 and cp=='c':  # Van Neuman boundary condition=0 and secondary order condition=0 for call
 
                         a=0
@@ -891,7 +902,7 @@ class Vanilla(Option):
                         if cp=='c':
                             B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  
                         else:
-                            B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i] * math.exp(-rate_a*T)
+                            B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i] * math.exp(-rate_a*(T-t*dt))
 
                         A[i-1,i]=c
     
@@ -930,10 +941,9 @@ class Vanilla(Option):
             # plt.plot(spot_rng,grid[0:s_steps+1,0] ,label='pde test')
             # plt.show()
 
-
 #########################################################################################################
 
-            if abs(x-x0)<= self._spot_minimum/1000 : # spot falls on node
+            if onnode == True : # spot falls on node
 
                 if spot_index == 0:
 
@@ -1021,11 +1031,288 @@ class Vanilla(Option):
 
                 gamma =gamma0 + (gamma1 - gamma0) * (x-x0)
 
-                #delta = delta0 + gamma * (spot - spot_rng[x0])  # delta from Taylor expansion using gamma value
                 delta = delta0+(x-x0)*(delta1-delta0)   # using naive interpolation
-
+                #delta = delta0 + gamma * (spot - spot_rng[x0])  # delta from Taylor expansion using gamma value
+                
                 pl = pl0 + (x-x0)* (pl1-pl0) 
                 # pl = pl0 + delta * (spot - spot_rng[x0]) + 0.5 * gamma * (spot - spot_rng[x0])**2
+
+        
+        if greeks.lower() == 'delta':
+
+            return delta * Q
+            
+
+        elif greeks.lower() == 'gamma':
+
+            return gamma * Q
+
+        else:
+
+            return pl * Q
+
+
+    def pricing_pde_alt(self,spot,vol,rate_c,rate_a,greeks='pl'):   # PDE with enhanced grids density around spot
+
+        if spot<=0:
+
+            spot = self._spot_minimum
+
+        Q = self._quantity
+
+        if self._cp.lower()=='call' or self._cp.lower()=='c':
+
+            cp='c'
+
+        else:
+
+            cp='p'
+        
+        if self._style.lower() == 'a' or self._style.lower()=='american':
+
+            style = 'a'
+
+        else:
+
+            style = 'e'
+
+        s_steps = self._ssteps_pde
+
+        t_steps = self._tsteps_pde
+
+        T = self._maturity
+
+        dt = T / t_steps
+
+        K = self._strike
+
+        spot_max = K * self._spot_max_factor_pde
+
+        if spot > spot_max: # if the spot is outside the grids
+
+            fwd= self.forward(spot,rate_c,rate_a)
+
+            if cp=='c':
+
+                pl = max(fwd-K,0) * math.exp(-rate_c*T)
+
+                delta = math.exp(-rate_a*T) * 1
+
+                if style =='a':
+                    
+                    pl = max (spot - K,pl)
+                
+            else:
+
+                pl=max(K-fwd,0) * math.exp(-rate_c*T)
+
+                if style =='a':
+                    
+                    pl = max (K-spot,pl)
+
+                delta = 0
+
+            gamma = 0
+
+
+        else:   # if the spot is within the grids
+        
+            ds = spot_max / s_steps
+
+            x = spot/ds
+
+            x0 = int(x)
+
+            x1 = x0+1
+
+            if x1-x<=10e-8:
+
+                 x0 = x1
+
+            spot_rng = np.linspace(0,spot_max,s_steps+1)
+
+            n = s_steps
+#############################################################################################################################
+
+            if abs(x-x0) > 10e-6:  # if spot falls in between nodes
+
+                ds_local = 0.5 * min(spot-spot_rng[x0],spot_rng[x0+1]-spot)
+
+                spot_pre= spot -ds_local
+
+                spot_aft = spot + ds_local
+
+                spot_rng=np.insert(spot_rng,x0+1,[spot_pre,spot,spot_aft])
+
+                spot_index = x0+2
+
+                n = s_steps+3  # update the number of spot steps, 3 steps are added
+
+            else:  # spot just falls on grid nodes
+
+                ds_local = 0.5 * ds
+                
+                if x0 == 0:  # spot falls on node 0
+
+                    spot_aft = 0 + ds_local
+
+                    spot_rng = np.insert(spot_rng,x0+1,spot_aft)
+
+                    spot_index = x0
+
+                    n = s_steps + 1
+
+                elif x0 == s_steps: # spot falls on last node s_max
+
+                    spot_pre = spot_max - ds_local
+
+                    spot_rng = np.insert(spot_rng,x0,spot_pre)
+
+                    spot_index = x0 + 1
+
+                    n = s_steps + 1
+
+                else: # spot falls on other node
+
+                    spot_pre = spot - ds_local
+
+                    spot_aft = spot + ds_local
+
+                    spot_rng = np.insert(spot_rng,x0,spot_pre)
+
+                    spot_index = x0+1
+
+                    spot_rng = np.insert(spot_rng,spot_index+1,spot_aft)
+
+                    n = s_steps + 2
+
+            grid= np.zeros((n+1,t_steps+1))
+
+            for i in range(n+1):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
+
+                if cp=='c':
+
+                    grid[i,t_steps] = max (spot_rng[i]-K,0) 
+
+                else:
+                    grid[i,t_steps] = max (K-spot_rng[i],0) 
+
+            
+            for j in range(t_steps): # boundry condition at spot =0 and spot = s_max
+
+                DF_t =  math.exp(-rate_c*(T-j*dt))
+
+                F_t = spot_rng[n] * math.exp((rate_c-rate_a) * (T-j*dt))
+
+                if cp=='c':   # if the option is a call
+
+                    grid[0,j] = 0
+
+                    if style =='a':
+                        grid[n,j] = max(spot_rng[n] - K,0)
+                    else:
+                        grid[n,j] = max(F_t - K,0) * DF_t
+                
+                else:   # if the option is a put
+                    if style =='a':
+                        grid[0,j] = max(K,0)
+                    else:
+                        grid[0,j] = max(K,0)* DF_t
+
+                    grid[n,j] = 0
+            
+            for t in range(t_steps-1,-1,-1):  # from t=t_step-1 to t=0
+
+                A = np.zeros((n-1,n-1))  
+
+                B = np.zeros((1,n-1))
+
+                for i in range(1,n):   # index from 1 to n-1
+
+                    s_i = spot_rng[i]  
+                    ds_up = spot_rng[i+1]-s_i
+                    ds_down = s_i-spot_rng[i-1]
+
+                    a = 0.5* (vol**2) * (s_i**2) /(ds_down **2)- (rate_c-rate_a)*s_i / (ds_up+ds_down)
+                    b = -1/dt - 0.5 * (vol**2)*(s_i**2)/ds_down*(1/ds_up + 1/ds_down) - rate_c
+                    c = 0.5 * (vol**2) * (s_i**2)/(ds_up * ds_down) + (rate_c - rate_a)*s_i/(ds_up + ds_down)
+                    d =- 1/ dt
+                    
+                    # construct matrix A and B in AX=B
+                    if i == 1:
+
+                        B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  
+
+                        A[i-1,i]=c
+    
+                    elif i == n-1:
+
+                        B[0,i-1]=d*grid[i,t+1]-c*grid[i+1,t]
+
+                        A[i-1,i-2] =a
+
+                    else:
+
+                        B[0,i-1]=d*grid[i,t+1]
+
+                        A[i-1,i-2] =a
+                        A[i-1,i]=c
+
+                    A[i-1,i-1]=b
+
+                V = np.linalg.solve(A,B.T)
+
+                if style == 'a':
+
+                    for i in range(s_steps-1):
+
+                        if cp == 'c':
+
+                            V[i] = max(V[i], spot_rng[i+1]-K)
+
+                        else:
+
+                            V[i] = max(V[i], K-spot_rng[i+1])
+
+                grid[1:n,t] = V[:,0]
+
+#########################################################################################################
+        # plt.figure()
+        # plt.scatter(spot_rng,grid[0:n+1,0], label='test')
+        # plt.show()
+
+        if spot_index == 0:
+
+            pl = grid[spot_index,0]
+            pl_up = grid[spot_index+1,0]
+            ds_up = spot_rng[spot_index+1]-spot_rng[spot_index]
+            delta = (pl_up-pl) / ds_up
+
+            gamma = 0
+
+        elif spot_index == n:
+
+            pl = grid[spot_index,0]
+            pl_down = grid[spot_index-1,0]
+            ds_down =  spot_rng[spot_index]-spot_rng[spot_index-1]
+            delta = (pl - pl_down)/ds_down
+
+            gamma = 0
+
+        else:
+
+            pl = grid[spot_index,0]
+            pl_up = grid[spot_index+1,0]
+            pl_down = grid[spot_index-1,0]
+
+            ds_up = spot_rng[spot_index+1]-spot_rng[spot_index]
+            ds_down =  spot_rng[spot_index]-spot_rng[spot_index-1]
+
+            delta = (pl_up-pl_down)/(ds_up+ds_down)
+            delta_up = (pl_up - pl)/ds_up
+            delta_down = (pl - pl_down)/ ds_down
+
+            gamma = (delta_up - delta_down)/ds_down
 
         
         if greeks.lower() == 'delta':
@@ -1059,11 +1346,12 @@ class Vanilla(Option):
 
         for s in spot_rng:
 
-            n=int((spot_end-spot_start)/spot_step)
-            i=int((s-spot_start)/spot_step)
-            progress= int(i/n*100)
+            if self._displayprogress == True:
 
-            print('Spot = %f, in progress %d complete' % (s, progress))
+                n=int((spot_end-spot_start)/spot_step)
+                i=int((s-spot_start)/spot_step)
+                progress= int(i/n*100)
+                print('Spot = %f, in progress %d complete' % (s, progress))
            
             if greeks.lower() == 'pl':
 
@@ -1131,7 +1419,9 @@ class Vanilla(Option):
           
             greeks_value.append(value)
 
-            print('Model1:',value)
+            if self._displayprogress == True:
+
+                print('%s by Model1: %.10f' % (greeks.lower(), value))
 
             if model_alt is not None:
 
@@ -1143,7 +1433,9 @@ class Vanilla(Option):
 
                 greeks_value_diff.append(value_diff)
 
-                print('Model2:',value_alt)
+                if self._displayprogress == True:
+
+                    print('%s by Model2: %.10f' % (greeks.lower(), value_alt))
         
         y = greeks_value
 
@@ -1196,24 +1488,26 @@ def main_vanilla():
     quantity = 1
     cp='put'
 
-    op = Vanilla(underlying,assetclass,T,K,'e',cp,quantity)
+    op = Vanilla(underlying,assetclass,T,K,'E',cp,quantity)
 
-    op._nsteps_crr=300
-    op._npaths_mc=10000
+    op._nsteps_crr=100
+    op._npaths_mc=30000
     op._nsteps_mc=200
     op._rnd_seed=10000
     op._vega_bump_is_percent = False
-    op._vega_bump=0.01
+    op._vega_bump=0.05
 
-    op._delta_bump=0.001
+    op._delta_bump=0.01
 
 
     op._spot_max_factor_pde=5
 
-    op._ssteps_pde=150
+    op._ssteps_pde=200
     op._tsteps_pde=100
 
-    op.spot_ladder(0,150,1,vol,rate_usd,div_spy,'vanna',op.pricing_crr,False)
+    op._displayprogress = True
+
+    op.spot_ladder(0,150,1,vol,rate_usd,div_spy,'pl',op.pricing_pde,True)
 
 if __name__ =='__main__':
 
