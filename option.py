@@ -70,7 +70,7 @@ class Vanilla(Option):
 
         self._tsteps_pde = 100
         self._ssteps_pde = 200
-        self._spot_max_factor_pde = 3
+        self._spot_max_factor_pde = 5
 
         self._spot_minimum = 10e-6
 
@@ -158,7 +158,7 @@ class Vanilla(Option):
 
         elif greeks.lower()=='vega':
 
-            vega = spot*N_pdf(d1)*math.sqrt(T) * math.exp(-rate_a*T)
+            vega = spot*N_pdf(d1)*math.sqrt(T) * math.exp(-rate_a*T) / 100
 
             return vega * Q
         
@@ -176,8 +176,8 @@ class Vanilla(Option):
 
         elif greeks.lower()=='rho':
 
-            call_rho = K*T*math.exp(-rate_c*T) * N(d2)
-            put_rho = -K*T*math.exp(-rate_c*T) * N(-d2)
+            call_rho = K*T*math.exp(-rate_c*T) * N(d2) / 100
+            put_rho = -K*T*math.exp(-rate_c*T) * N(-d2) / 100
 
             if cp =='c':
 
@@ -328,7 +328,7 @@ class Vanilla(Option):
                 
             price_up = model(spot,vol_up,rate_c,rate_a)
 
-            vega_value = (price_up- price)/(vol_up-vol)
+            vega_value = (price_up- price)/(vol_up-vol) / 100
         
         return vega_value
 
@@ -364,7 +364,7 @@ class Vanilla(Option):
                 
             price_up = model(spot,vol,rate_c_up,rate_a)
 
-            rho_value = (price_up- price)/(rate_c_up-rate_c)
+            rho_value = (price_up- price)/(rate_c_up-rate_c) / 100
         
         return rho_value
     
@@ -383,6 +383,14 @@ class Vanilla(Option):
         if model == self.pricing_bsm:
 
             theta_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'theta')
+
+        elif model == self.pricing_crr:
+
+            theta_value = self.pricing_crr(spot,vol,rate_c,rate_a,'theta')
+
+        elif model == self.pricing_pde:
+
+            theta_value = self.pricing_pde(spot,vol,rate_c,rate_a,'theta')
         
         else:
 
@@ -413,21 +421,42 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        vega = self.vega(spot,vol,rate_c,rate_a,model)
+        # vega = self.vega(spot,vol,rate_c,rate_a,model)
 
         bumpvalue=self._vega_bump
 
+        # if self._vega_bump_is_percent == True:
+
+        #     vol_up = vol * (1+bumpvalue/100)
+            
+        # else:                                 # then the bumpvalue is absolute
+
+        #     vol_up = vol + bumpvalue
+
+        # vega_up = self.vega(spot,vol_up,rate_c,rate_a,model)
+
+        # volga_value = (vega_up - vega)/(vol_up-vol)
+
+        ###########################################################
+
         if self._vega_bump_is_percent == True:
 
-            vol_up = vol * (1+bumpvalue/100)
-            
+            dvol = vol * bumpvalue/100
+   
         else:                                 # then the bumpvalue is absolute
 
-            vol_up = vol + bumpvalue
+            dvol = bumpvalue
 
-        vega_up = self.vega(spot,vol_up,rate_c,rate_a,model)
+            price = model(spot,vol,rate_c,rate_a)
+            price_uu = model(spot,vol+2*dvol,rate_c,rate_a)
+            price_dd = model(spot,vol-2*dvol,rate_c,rate_a)
+            price_u = model(spot,vol+dvol,rate_c,rate_a)
+            price_d = model(spot,vol-dvol,rate_c,rate_a)
 
-        volga_value = (vega_up - vega)/(vol_up-vol)
+            volga_value = (-price_dd+16*price_d-30*price+16*price_u-price_uu)/(12*dvol**2)
+
+
+        #########################################################3#
 
         return volga_value
 
@@ -700,49 +729,64 @@ class Vanilla(Option):
                         call_tree[j,i] = D * (p*call_tree[j-1,i+1]+(1-p)*call_tree[j+1,i+1])
                         put_tree[j,i] = D * (p*put_tree[j-1,i+1]+(1-p)*put_tree[j+1,i+1])
                     
-        call_price = call_tree[n_steps-1,0] * Q
-        put_price= put_tree[n_steps-1,0] * Q
+        call_price = call_tree[n_steps-1,0] 
+        put_price= put_tree[n_steps-1,0]
 
-        call_delta = (call_tree[n_steps-2,1]-call_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
-        put_delta = (put_tree[n_steps-2,1]-put_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
+        call_delta = (call_tree[n_steps-2,1]-call_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
+        put_delta = (put_tree[n_steps-2,1]-put_tree[n_steps,1])/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
 
         call_delta_up =(call_tree[n_steps-3,2]-call_tree[n_steps-1,2])/(spot_tree[n_steps-3,2]-spot_tree[n_steps-1,2])
         call_delta_down =(call_tree[n_steps-1,2]-call_tree[n_steps+1,2])/(spot_tree[n_steps-1,2]-spot_tree[n_steps+1,2])
         put_delta_up =(put_tree[n_steps-3,2]-put_tree[n_steps-1,2])/(spot_tree[n_steps-3,2]-spot_tree[n_steps-1,2])
         put_delta_down =(put_tree[n_steps-1,2]-put_tree[n_steps+1,2])/(spot_tree[n_steps-1,2]-spot_tree[n_steps+1,2])
 
-        call_gamma =  (call_delta_up - call_delta_down)/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
-        put_gamma =  (put_delta_up - put_delta_down)/(spot_tree[n_steps-2,1]-spot_tree[n_steps,1]) * Q
+        h = 0.5 * (spot_tree[n_steps-3,2]-spot_tree[n_steps+1,2])
+
+        call_gamma =  (call_delta_up - call_delta_down)/ h #(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
+        put_gamma =  (put_delta_up - put_delta_down)/ h #(spot_tree[n_steps-2,1]-spot_tree[n_steps,1])
+
+        call_theta = (call_tree[n_steps-1,2]- call_price) /(dt * 2) * self._theta_bump
+        put_theta = (put_tree[n_steps-1,2]-put_price) / (dt * 2) * self._theta_bump
 
         if greeks.lower()=='pl':
 
             if self._cp =='call':
 
-                return call_price
+                return call_price * Q
             
             else:
 
-                return put_price
+                return put_price * Q
 
         elif greeks.lower()=='delta':
 
             if self._cp =='call':
 
-                return call_delta
+                return call_delta * Q
             
             else:
 
-                return put_delta
+                return put_delta * Q
 
         elif greeks.lower()=='gamma':
 
             if self._cp == 'call':
 
-                return call_gamma
+                return call_gamma * Q
             
             else:
 
-                return put_gamma
+                return put_gamma * Q
+
+        elif greeks.lower()=='theta':
+
+            if self._cp == 'call':
+
+                return call_theta * Q
+            
+            else:
+
+                return put_theta * Q
 
         else:
 
@@ -787,31 +831,54 @@ class Vanilla(Option):
 
         if spot > spot_max: # if the spot is outside the grids
 
+            ds = spot_max / s_steps
+
             fwd= self.forward(spot,rate_c,rate_a)
+
+            fwd_shift = spot * math.exp((rate_c - rate_a) * (T-dt))
+
+            spot_up = spot + ds
+            spot_down = spot -ds
+
+            fwd_up = self.forward(spot_up,rate_c,rate_a)
+            fwd_down = self.forward(spot_down,rate_c,rate_a)
 
             if cp=='c':
 
                 pl = max(fwd-K,0) * math.exp(-rate_c*T)
 
+                pl_up = max(fwd_up-K,0) * math.exp(-rate_c*T)
+                pl_down = max(fwd_down-K,0) * math.exp(-rate_c*T)
+
+                pl_shift = max(fwd_shift-K,0) * math.exp(-rate_c*(T-dt))
+
                 if style =='a':
                     
                     pl = max (spot - K,pl)
+                    pl_up = max (spot_up - K,pl_up)
+                    pl_down = max (spot_down - K,pl_down)
+                    pl_shift = max (spot - K,pl_shift)
                 
-                delta = 1
-
 
             else:
 
                 pl=max(K-fwd,0) * math.exp(-rate_c*T)
+                pl_up=max(K-fwd_up,0) * math.exp(-rate_c*T)
+                pl_down=max(K-fwd_down,0) * math.exp(-rate_c*T)
+                pl_shift = max(K-fwd_shift,0) * math.exp(-rate_c*(T-dt))
 
                 if style =='a':
                     
                     pl = max (K-spot,pl)
+                    pl_up = max (K-spot_up,pl_up)
+                    pl_down = max (K-spot_down,pl_down)
+                    pl_shift = max (K-spot,pl_shift)
 
-                delta = 0
+            
+            delta = (pl_up - pl_down) / (2*ds)
+            gamma = (pl_up-2*pl + pl_down) / (ds**2)
 
-            gamma = 0
-
+            theta = (pl_shift - pl)/ dt * self._theta_bump
 
         else:   # if the spot is within the grids
         
@@ -981,13 +1048,19 @@ class Vanilla(Option):
 
                     delta = (y_up - y_down)/(ds*2)
 
+                pl_shift = grid[spot_index,1]
+
                 gamma = (y_up -2*y + y_down)/(ds**2)
 
-                    
+                theta = (pl_shift-pl) / dt * self._theta_bump
+          
             else:  # spot falls in between nodes
 
                 pl0 = grid[x0,0]
                 pl1 = grid[x0+1,0]
+
+                pl0_shift = grid[x0,1]
+                pl1_shift = grid[x0+1,1]
                 
                 if x0 == 0:
 
@@ -1037,6 +1110,10 @@ class Vanilla(Option):
                 pl = pl0 + (x-x0)* (pl1-pl0) 
                 # pl = pl0 + delta * (spot - spot_rng[x0]) + 0.5 * gamma * (spot - spot_rng[x0])**2
 
+                pl_shift = pl0_shift + (x-x0)* (pl1_shift-pl0_shift)
+
+                theta = (pl_shift - pl)/dt * self._theta_bump
+
         
         if greeks.lower() == 'delta':
 
@@ -1046,6 +1123,10 @@ class Vanilla(Option):
         elif greeks.lower() == 'gamma':
 
             return gamma * Q
+
+        elif greeks.lower() == 'theta':
+
+            return theta * Q
 
         else:
 
@@ -1330,19 +1411,42 @@ class Vanilla(Option):
 
  
 
-    def spot_ladder(self, spot_start, spot_end, spot_step,vol,rate_c,rate_a,greeks,model_alt=None, showdiff=False):
+    def spot_ladder(self, spot_start, spot_end, spot_step,vol,rate_c,rate_a,model2=None, showdiff=False):
 
         spot_rng = np.arange(spot_start,spot_end,spot_step)
 
-        greeks_value =[]
+        pl =[]
+        delta=[]
+        gamma=[]
+        vega=[]
+        theta=[]
+        rho=[]
+        vanna=[]
+        volga=[]
 
         model = self._default_model
 
-        if model_alt is not None:
+        if model2 is not None:
             
-            greeks_value_alt =[]
+            pl2 =[]
+            delta2=[]
+            gamma2=[]
+            vega2=[]
+            theta2=[]
+            rho2=[]
+            vanna2=[]
+            volga2=[]
 
-            greeks_value_diff = []
+            if showdiff == True:
+
+                pl_diff =[]
+                delta_diff=[]
+                gamma_diff=[]
+                vega_diff=[]
+                theta_diff=[]
+                rho_diff=[]
+                vanna_diff=[]
+                volga_diff=[]
 
         for s in spot_rng:
 
@@ -1352,124 +1456,134 @@ class Vanilla(Option):
                 i=int((s-spot_start)/spot_step)
                 progress= int(i/n*100)
                 print('Spot = %f, in progress %d complete' % (s, progress))
-           
-            if greeks.lower() == 'pl' or greeks.lower() == 'mv':
 
-                value = model(s,vol,rate_c,rate_a)
+            pl_value= model(s,vol,rate_c,rate_a)
+            delta_value = self.delta(s,vol,rate_c,rate_a)
+            gamma_value = self.gamma(s,vol,rate_c,rate_a)
+            vega_value = self.vega(s,vol,rate_c,rate_a)
+            theta_value = self.theta(s,vol,rate_c,rate_a)
+            volga_value = self.volga(s,vol,rate_c,rate_a)
+            vanna_value = self.vanna(s,vol,rate_c,rate_a)
+            rho_value = self.rho(s,vol,rate_c,rate_a)
+
+            pl.append(pl_value)
+            delta.append(delta_value)
+            gamma.append(gamma_value)
+            vega.append(vega_value)
+            theta.append(theta_value)
+            volga.append(volga_value)
+            vanna.append(vanna_value)
+            rho.append(rho_value)
+
                 
-                if model_alt is not None:
+            if model2 is not None:
 
-                    value_alt =model_alt(s,vol,rate_c,rate_a)
-                
-            elif greeks.lower()=='delta':
-                
-                value = self.delta(s,vol,rate_c,rate_a)
+                pl_value2 = model2(s,vol,rate_c,rate_a)
+                delta_value2 = self.delta(s,vol,rate_c,rate_a,model2)
+                gamma_value2 = self.gamma(s,vol,rate_c,rate_a,model2)
+                vega_value2 = self.vega(s,vol,rate_c,rate_a,model2)
+                theta_value2 = self.theta(s,vol,rate_c,rate_a,model2)
+                volga_value2 = self.volga(s,vol,rate_c,rate_a,model2)
+                vanna_value2 = self.vanna(s,vol,rate_c,rate_a,model2)
+                rho_value2 = self.rho(s,vol,rate_c,rate_a,model2)
 
-                if model_alt is not None:
+                pl2.append(pl_value2)
+                delta2.append(delta_value2)
+                gamma2.append(gamma_value2)
+                vega2.append(vega_value2)
+                theta2.append(theta_value2)
+                volga2.append(volga_value2)
+                vanna2.append(vanna_value2)
+                rho2.append(rho_value2)
 
-                    value_alt =self.delta(s,vol,rate_c,rate_a,model_alt)
+                if showdiff == True:
 
-            elif greeks.lower()=='gamma':
-                
-                value = self.gamma(s,vol,rate_c,rate_a)
+                    pl_diff_value = pl_value2 - pl_value
+                    delta_diff_value = delta_value2 - delta_value
+                    gamma_diff_value = gamma_value2 - gamma_value
+                    vega_diff_value = vega_value2 - vega_value
+                    theta_diff_value = theta_value2 - theta_value
+                    volga_diff_value = volga_value2 - volga_value
+                    vanna_diff_value = vanna_value2 - vanna_value
+                    rho_diff_value = rho_value2 - rho_value
 
-                if model_alt is not None:
+                    pl_diff.append(pl_diff_value)
+                    delta_diff.append(delta_diff_value)
+                    gamma_diff.append(gamma_diff_value)
+                    vega_diff.append(vega_diff_value)
+                    theta_diff.append(theta_diff_value)
+                    volga_diff.append(volga_diff_value)
+                    vanna_diff.append(vanna_diff_value)
+                    rho_diff.append(rho_diff_value)
 
-                    value_alt =self.gamma(s,vol,rate_c,rate_a,model_alt)
 
-            elif greeks.lower()=='vega':
-                
-                value = self.vega(s,vol,rate_c,rate_a)
+        fig, ax = plt.subplots(ncols=4, nrows=2, figsize=(14,9))
 
-                if model_alt is not None:
+        ax[0,0].set_title("P&L")
+        ax[0,1].set_title("Delta")
+        ax[0,2].set_title("Gamma")
+        ax[0,3].set_title("Theta")
+        ax[1,0].set_title("Rho")
+        ax[1,1].set_title("Vega")
+        ax[1,2].set_title("Volga")
+        ax[1,3].set_title("Vanna")
 
-                    value_alt =self.vega(s,vol,rate_c,rate_a,model_alt)
-
-            elif greeks.lower()=='theta':
-                
-                value = self.theta(s,vol,rate_c,rate_a)
-
-                if model_alt is not None:
-
-                    value_alt =self.theta(s,vol,rate_c,rate_a,model_alt)
-
-            elif greeks.lower()=='volga':
-
-                value = self.volga(s,vol,rate_c,rate_a)
-
-                if model_alt is not None:
-
-                    value_alt =self.volga(s,vol,rate_c,rate_a,model_alt)
-            
-            elif greeks.lower()=='vanna':
-
-                value = self.vanna(s,vol,rate_c,rate_a)
-
-                if model_alt is not None:
-
-                    value_alt =self.vanna(s,vol,rate_c,rate_a,model_alt)
-
-            elif greeks.lower()=='rho':
-
-                value = self.rho(s,vol,rate_c,rate_a)
-
-                if model_alt is not None:
-
-                    value_alt =self.rho(s,vol,rate_c,rate_a,model_alt)
-          
-            greeks_value.append(value)
-
-            if self._displayprogress == True:
-
-                print('%s by Model1: %.10f' % (greeks.lower(), value))
-
-            if model_alt is not None:
-
-                value_diff = value_alt - value
-
-                # value_diff_per = (value_diff)/value * 100
-
-                greeks_value_alt.append(value_alt)
-
-                greeks_value_diff.append(value_diff)
-
-                if self._displayprogress == True:
-
-                    print('%s by Model2: %.10f' % (greeks.lower(), value_alt))
         
-        y = greeks_value
 
-        if model_alt is not None:
+        if model2 is None:
 
-            y_alt = greeks_value_alt
+            ax[0,0].plot(spot_rng,pl,label='P&L:model1')  
+            ax[0,1].plot(spot_rng,delta,label='Delta:model1')
+            ax[0,2].plot(spot_rng,gamma,label='Gamma:model1')
+            ax[0,3].plot(spot_rng,theta,label='Theta:model1')
+            ax[1,0].plot(spot_rng,rho,label='Rho:model1')
+            ax[1,1].plot(spot_rng,vega,label='Vega:model1')
+            ax[1,2].plot(spot_rng,volga,label='Volga:model1')
+            ax[1,3].plot(spot_rng,vanna,label='Vanna:model1')
+        
+        elif showdiff == False:
 
-            y_diff = greeks_value_diff
-            
-        y_label = greeks.lower()
-        #y_reg = np.polyfit(spot_rng,y,6)
-        #y_fit = np.polyval(y_reg,spot_rng)      
+            ax[0,0].plot(spot_rng,pl,label='P&L:model1')  
+            ax[0,1].plot(spot_rng,delta,label='Delta:model1')
+            ax[0,2].plot(spot_rng,gamma,label='Gamma:model1')
+            ax[0,3].plot(spot_rng,theta,label='Theta:model1')
+            ax[1,0].plot(spot_rng,rho,label='Rho:model1')
+            ax[1,1].plot(spot_rng,vega,label='Vega:model1')
+            ax[1,2].plot(spot_rng,volga,label='Volga:model1')
+            ax[1,3].plot(spot_rng,vanna,label='Vanna:model1')
+        
+            ax[0,0].plot(spot_rng,pl2,label='P&L:model2')  
+            ax[0,1].plot(spot_rng,delta2,label='Delta:model2')
+            ax[0,2].plot(spot_rng,gamma2,label='Gamma:model2')
+            ax[0,3].plot(spot_rng,theta2,label='Theta:model2')
+            ax[1,0].plot(spot_rng,rho2,label='Rho:model2')
+            ax[1,1].plot(spot_rng,vega2,label='Vega:model2')
+            ax[1,2].plot(spot_rng,volga2,label='Volga:model2')
+            ax[1,3].plot(spot_rng,vanna2,label='Vanna:model2')
 
-        plt.figure(figsize=(14,10))
+        else:
 
-        if showdiff == False:
-            plt.plot(spot_rng,y,label=y_label+': model1')
-            #plt.plot(spot_rng,y_fit,label=y_label+' fit curve')
+            ax[0,0].plot(spot_rng,pl_diff,label='P&L: model2-model1') 
+            ax[0,1].plot(spot_rng,delta_diff,label='Delta: model2-model1')
+            ax[0,2].plot(spot_rng,gamma_diff,label='Gamma: model2-model1')
+            ax[0,3].plot(spot_rng,theta_diff,label='Theta: model2-model1')
+            ax[1,0].plot(spot_rng,rho_diff,label='Rho: model2-model1')
+            ax[1,1].plot(spot_rng,vega_diff,label='Vega: model2-model1')
+            ax[1,2].plot(spot_rng,volga_diff,label='Volga: model2-model1')
+            ax[1,3].plot(spot_rng,vanna_diff,label='Vanna: model2-model1')
+        
+        ax[0,0].legend()
+        ax[0,1].legend()
+        ax[0,2].legend()
+        ax[0,3].legend()
+        ax[1,0].legend()
+        ax[1,1].legend()
+        ax[1,2].legend()
+        ax[1,3].legend()
+        
+        #plt.legend(loc=0)
 
-        if model_alt is not None:
-
-            #y_reg_alt = np.polyfit(spot_rng,y_alt,6)
-            #y_fit_alt = np.polyval(y_reg_alt,spot_rng)
-
-            if showdiff == False:   
-                plt.plot(spot_rng,y_alt,label=y_label + ': model2')
-                # plt.plot(spot_rng,y_fit_alt,label=y_label+' fit curve'+'-model 2')
-            else:
-                plt.plot(spot_rng,y_diff,label=y_label + ': model2-model1')
-
-        plt.xlabel('spot')
-        plt.ylabel(y_label)
-        plt.legend(loc='best')
-        plt.title('Vanilla option Greeks') 
+        fig.suptitle('Vanilla Option Greeks')
         plt.show()
 
         return None
@@ -1481,7 +1595,7 @@ def main_vanilla():
     assetclass='EQD'
     spot=50
     vol=0.3
-    T=1
+    T=0.1
     K =50
     rate_usd=0.005
     div_spy=0.02
@@ -1491,25 +1605,21 @@ def main_vanilla():
     op = Vanilla(underlying,assetclass,T,K,'E',cp,quantity)
 
     op._nsteps_crr=100
-    op._npaths_mc=10000
+    op._npaths_mc=3000
     op._nsteps_mc=200
     op._rnd_seed=10000
     op._vega_bump_is_percent = False
-    op._vega_bump=0.05
+    op._vega_bump=0.01
+    op._delta_bump=0.1
 
-    op._rnd_seed = 6666
-
-    op._delta_bump=1
-
-
-    op._spot_max_factor_pde=5
-
-    op._ssteps_pde=200
+    op._ssteps_pde=100
     op._tsteps_pde=100
 
     op._displayprogress = True
 
-    op.spot_ladder(1,150,1,vol,rate_usd,div_spy,'vega',op.pricing_pde,False)
+    op._spot_max_factor_pde = 5
+
+    op.spot_ladder(20,80,1,vol,rate_usd,div_spy,op.pricing_pde,False)
 
 if __name__ =='__main__':
 
