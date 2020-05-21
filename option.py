@@ -65,7 +65,7 @@ class Vanilla(Option):
     
         self._npaths_mc = 1000
         self._nsteps_mc = 300
-        self._rnd_seed = 12345
+        self._rnd_seed = 10000
         self._nsteps_crr = 101
 
         self._tsteps_pde = 100
@@ -78,14 +78,14 @@ class Vanilla(Option):
 
         if self._style.lower() == 'e':
 
-            self._default_model = self.pricing_bsm
+            self._default_model = self.bsm
         
         else:
 
-            self._default_model = self.pricing_crr
+            self._default_model = self.crr
 
 
-    def intrinsicvalue(self,spot):
+    def ivalue(self,spot):
 
         intrinsicvalue_c = max(spot-self._strike,0)
 
@@ -109,7 +109,7 @@ class Vanilla(Option):
 
         return fwd
 
-    def pricing_bsm(self,spot,vol,rate_c,rate_a,greeks='pl'):
+    def bsm(self,spot,vol,rate_c,rate_a,greeks='pl'):
 
         if spot<=0:
 
@@ -210,21 +210,21 @@ class Vanilla(Option):
         else:
             model = model_alt
 
-        if model == self.pricing_crr:
+        if model == self.crr:
 
-            delta_value = self.pricing_crr(spot,vol,rate_c,rate_a,'delta')
+            delta_value = self.crr(spot,vol,rate_c,rate_a,'delta')
         
-        elif model == self.pricing_pde: 
+        elif model == self.pde: 
 
-            delta_value = self.pricing_pde(spot,vol,rate_c,rate_a,'delta')
+            delta_value = self.pde(spot,vol,rate_c,rate_a,'delta')
 
-        elif model == self.pricing_pde_alt: 
+        elif model == self.pde2: 
 
-            delta_value = self.pricing_pde_alt(spot,vol,rate_c,rate_a,'delta')
+            delta_value = self.pde2(spot,vol,rate_c,rate_a,'delta')
 
-        elif model == self.pricing_bsm:
+        elif model == self.bsm:
 
-            delta_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'delta')
+            delta_value = self.bsm(spot,vol,rate_c,rate_a,'delta')
 
         else:       
 
@@ -258,21 +258,21 @@ class Vanilla(Option):
         else:
             model = model_alt
 
-        if model == self.pricing_crr:
+        if model == self.crr:
 
-            gamma_value = self.pricing_crr(spot,vol,rate_c,rate_a,'gamma')
+            gamma_value = self.crr(spot,vol,rate_c,rate_a,'gamma')
         
-        elif model == self.pricing_pde:
+        elif model == self.pde:
 
-            gamma_value = self.pricing_pde(spot,vol,rate_c,rate_a,'gamma')
+            gamma_value = self.pde(spot,vol,rate_c,rate_a,'gamma')
 
-        elif model == self.pricing_pde_alt: 
+        elif model == self.pde2: 
 
-            gamma_value = self.pricing_pde_alt(spot,vol,rate_c,rate_a,'gamma')
+            gamma_value = self.pde2(spot,vol,rate_c,rate_a,'gamma')
 
-        elif model == self.pricing_bsm:
+        elif model == self.bsm:
 
-            gamma_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'gamma')
+            gamma_value = self.bsm(spot,vol,rate_c,rate_a,'gamma')
 
         else:    
             price = model(spot,vol,rate_c,rate_a)
@@ -308,9 +308,9 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        if model == self.pricing_bsm:
+        if model == self.bsm:
 
-            vega_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'vega')
+            vega_value = self.bsm(spot,vol,rate_c,rate_a,'vega')
 
         else: 
 
@@ -344,9 +344,9 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        if model == self.pricing_bsm:
+        if model == self.bsm:
 
-            rho_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'rho')
+            rho_value = self.bsm(spot,vol,rate_c,rate_a,'rho')
 
         else:
 
@@ -380,17 +380,17 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        if model == self.pricing_bsm:
+        if model == self.bsm:
 
-            theta_value = self.pricing_bsm(spot,vol,rate_c,rate_a,'theta')
+            theta_value = self.bsm(spot,vol,rate_c,rate_a,'theta')
 
-        elif model == self.pricing_crr:
+        elif model == self.crr:
 
-            theta_value = self.pricing_crr(spot,vol,rate_c,rate_a,'theta')
+            theta_value = self.crr(spot,vol,rate_c,rate_a,'theta')
 
-        elif model == self.pricing_pde:
+        elif model == self.pde:
 
-            theta_value = self.pricing_pde(spot,vol,rate_c,rate_a,'theta')
+            theta_value = self.pde(spot,vol,rate_c,rate_a,'theta')
         
         else:
 
@@ -421,39 +421,44 @@ class Vanilla(Option):
 
             spot = self._spot_minimum
 
-        # vega = self.vega(spot,vol,rate_c,rate_a,model)
-
         bumpvalue=self._vega_bump
 
-        # if self._vega_bump_is_percent == True:
-
-        #     vol_up = vol * (1+bumpvalue/100)
-            
-        # else:                                 # then the bumpvalue is absolute
-
-        #     vol_up = vol + bumpvalue
-
-        # vega_up = self.vega(spot,vol_up,rate_c,rate_a,model)
-
-        # volga_value = (vega_up - vega)/(vol_up-vol)
-
-        ###########################################################
+        # vega = self.vega(spot,vol,rate_c,rate_a,model)
 
         if self._vega_bump_is_percent == True:
 
-            dvol = vol * bumpvalue/100
-   
+            vol_up = vol * (1+bumpvalue/100)
+
+            vol_down = vol - (1+bumpvalue/100)
+            
         else:                                 # then the bumpvalue is absolute
 
-            dvol = bumpvalue
+            vol_up = vol + bumpvalue
 
-            price = model(spot,vol,rate_c,rate_a)
-            price_uu = model(spot,vol+2*dvol,rate_c,rate_a)
-            price_dd = model(spot,vol-2*dvol,rate_c,rate_a)
-            price_u = model(spot,vol+dvol,rate_c,rate_a)
-            price_d = model(spot,vol-dvol,rate_c,rate_a)
+            vol_down = max(vol - bumpvalue,0)
 
-            volga_value = (-price_dd+16*price_d-30*price+16*price_u-price_uu)/(12*dvol**2)
+        vega_up = self.vega(spot,vol_up,rate_c,rate_a,model)
+        vega_down = self.vega(spot,vol_down,rate_c,rate_a,model)
+
+        volga_value = (vega_up - vega_down)/(vol_up-vol_down)
+
+        ###########################################################
+
+        # if self._vega_bump_is_percent == True:
+
+        #     dvol = vol * bumpvalue/100
+   
+        # else:                                 # then the bumpvalue is absolute
+
+        #     dvol = bumpvalue
+
+        #     price = model(spot,vol,rate_c,rate_a)
+        #     price_uu = model(spot,vol+2*dvol,rate_c,rate_a)
+        #     price_dd = model(spot,vol-2*dvol,rate_c,rate_a)
+        #     price_u = model(spot,vol+dvol,rate_c,rate_a)
+        #     price_d = model(spot,vol-dvol,rate_c,rate_a)
+
+        #     volga_value = (-price_dd+16*price_d-30*price+16*price_u-price_uu)/(12*dvol**2)
 
 
         #########################################################3#
@@ -509,7 +514,6 @@ class Vanilla(Option):
 
             vanna_value = (delta_up-delta) / (vol_up-vol)
 
- 
         return vanna_value
 
 
@@ -554,7 +558,7 @@ class Vanilla(Option):
         return s      # the size of s should be n_paths
 
 
-    def pricing_mc(self,spot,vol,rate_c,rate_a):
+    def mc(self,spot,vol,rate_c,rate_a):
 
         Q = self._quantity
 
@@ -578,7 +582,7 @@ class Vanilla(Option):
 
         p =[]
 
-        for i in range(n_paths):
+        for _ in range(n_paths):
 
             s = self.gen_one_path(T,spot,vol,rate_c,rate_a,n_steps)
 
@@ -602,7 +606,7 @@ class Vanilla(Option):
             return None
 
 
-    def pricing_mc_fast(self,spot,vol,rate_c,rate_a):
+    def mc_fast(self,spot,vol,rate_c,rate_a):
 
         Q = self._quantity
 
@@ -649,7 +653,7 @@ class Vanilla(Option):
             return None
 
 
-    def pricing_crr(self,spot,vol,rate_c,rate_a,greeks='pl'):  # pricing option using binomial tree, time steps is n_steps
+    def crr(self,spot,vol,rate_c,rate_a,greeks='pl'):  # pricing option using binomial tree, time steps is n_steps
 
         Q = self._quantity
 
@@ -793,7 +797,7 @@ class Vanilla(Option):
             return None
 
 
-    def pricing_pde(self,spot,vol,rate_c,rate_a,greeks='pl'):
+    def pde(self,spot,vol,rate_c,rate_a,greeks='pl'):
 
         if spot<=0:
 
@@ -1133,7 +1137,7 @@ class Vanilla(Option):
             return pl * Q
 
 
-    def pricing_pde_alt(self,spot,vol,rate_c,rate_a,greeks='pl'):   # PDE with enhanced grids density around spot
+    def pde2(self,spot,vol,rate_c,rate_a,greeks='pl'):   # PDE with enhanced grids density around spot
 
         if spot<=0:
 
@@ -1411,9 +1415,7 @@ class Vanilla(Option):
 
  
 
-    def spot_ladder(self, spot_start, spot_end, spot_step,vol,rate_c,rate_a,model2=None, showdiff=False):
-
-        spot_rng = np.arange(spot_start,spot_end,spot_step)
+    def spot_ladder(self, spot_list,vol,rate_c,rate_a,model1=None, model2=None, showdiff=False):
 
         pl =[]
         delta=[]
@@ -1424,7 +1426,8 @@ class Vanilla(Option):
         vanna=[]
         volga=[]
 
-        model = self._default_model
+        if model1 is None:
+            model1 = self._default_model
 
         if model2 is not None:
             
@@ -1448,23 +1451,24 @@ class Vanilla(Option):
                 vanna_diff=[]
                 volga_diff=[]
 
-        for s in spot_rng:
+        i = 0
+
+        for s in spot_list:
 
             if self._displayprogress == True:
 
-                n=int((spot_end-spot_start)/spot_step)
-                i=int((s-spot_start)/spot_step)
+                n=len(spot_list)
                 progress= int(i/n*100)
                 print('Spot = %f, in progress %d complete' % (s, progress))
 
-            pl_value= model(s,vol,rate_c,rate_a)
-            delta_value = self.delta(s,vol,rate_c,rate_a)
-            gamma_value = self.gamma(s,vol,rate_c,rate_a)
-            vega_value = self.vega(s,vol,rate_c,rate_a)
-            theta_value = self.theta(s,vol,rate_c,rate_a)
-            volga_value = self.volga(s,vol,rate_c,rate_a)
-            vanna_value = self.vanna(s,vol,rate_c,rate_a)
-            rho_value = self.rho(s,vol,rate_c,rate_a)
+            pl_value= model1(s,vol,rate_c,rate_a)
+            delta_value = self.delta(s,vol,rate_c,rate_a,model1)
+            gamma_value = self.gamma(s,vol,rate_c,rate_a,model1)
+            vega_value = self.vega(s,vol,rate_c,rate_a,model1)
+            theta_value = self.theta(s,vol,rate_c,rate_a,model1)
+            volga_value = self.volga(s,vol,rate_c,rate_a,model1)
+            vanna_value = self.vanna(s,vol,rate_c,rate_a,model1)
+            rho_value = self.rho(s,vol,rate_c,rate_a,model1)
 
             pl.append(pl_value)
             delta.append(delta_value)
@@ -1515,6 +1519,8 @@ class Vanilla(Option):
                     volga_diff.append(volga_diff_value)
                     vanna_diff.append(vanna_diff_value)
                     rho_diff.append(rho_diff_value)
+            
+            i=i+1
 
 
         fig, ax = plt.subplots(ncols=4, nrows=2, figsize=(14,9))
@@ -1526,51 +1532,49 @@ class Vanilla(Option):
         ax[1,0].set_title("Rho")
         ax[1,1].set_title("Vega")
         ax[1,2].set_title("Volga")
-        ax[1,3].set_title("Vanna")
-
-        
+        ax[1,3].set_title("Vanna")       
 
         if model2 is None:
 
-            ax[0,0].plot(spot_rng,pl,label='P&L:model1')  
-            ax[0,1].plot(spot_rng,delta,label='Delta:model1')
-            ax[0,2].plot(spot_rng,gamma,label='Gamma:model1')
-            ax[0,3].plot(spot_rng,theta,label='Theta:model1')
-            ax[1,0].plot(spot_rng,rho,label='Rho:model1')
-            ax[1,1].plot(spot_rng,vega,label='Vega:model1')
-            ax[1,2].plot(spot_rng,volga,label='Volga:model1')
-            ax[1,3].plot(spot_rng,vanna,label='Vanna:model1')
+            ax[0,0].plot(spot_list,pl,label='P&L:model1')  
+            ax[0,1].plot(spot_list,delta,label='Delta:model1')
+            ax[0,2].plot(spot_list,gamma,label='Gamma:model1')
+            ax[0,3].plot(spot_list,theta,label='Theta:model1')
+            ax[1,0].plot(spot_list,rho,label='Rho:model1')
+            ax[1,1].plot(spot_list,vega,label='Vega:model1')
+            ax[1,2].plot(spot_list,volga,label='Volga:model1')
+            ax[1,3].plot(spot_list,vanna,label='Vanna:model1')
         
         elif showdiff == False:
 
-            ax[0,0].plot(spot_rng,pl,label='P&L:model1')  
-            ax[0,1].plot(spot_rng,delta,label='Delta:model1')
-            ax[0,2].plot(spot_rng,gamma,label='Gamma:model1')
-            ax[0,3].plot(spot_rng,theta,label='Theta:model1')
-            ax[1,0].plot(spot_rng,rho,label='Rho:model1')
-            ax[1,1].plot(spot_rng,vega,label='Vega:model1')
-            ax[1,2].plot(spot_rng,volga,label='Volga:model1')
-            ax[1,3].plot(spot_rng,vanna,label='Vanna:model1')
+            ax[0,0].plot(spot_list,pl,label='P&L:model1')  
+            ax[0,1].plot(spot_list,delta,label='Delta:model1')
+            ax[0,2].plot(spot_list,gamma,label='Gamma:model1')
+            ax[0,3].plot(spot_list,theta,label='Theta:model1')
+            ax[1,0].plot(spot_list,rho,label='Rho:model1')
+            ax[1,1].plot(spot_list,vega,label='Vega:model1')
+            ax[1,2].plot(spot_list,volga,label='Volga:model1')
+            ax[1,3].plot(spot_list,vanna,label='Vanna:model1')
         
-            ax[0,0].plot(spot_rng,pl2,label='P&L:model2')  
-            ax[0,1].plot(spot_rng,delta2,label='Delta:model2')
-            ax[0,2].plot(spot_rng,gamma2,label='Gamma:model2')
-            ax[0,3].plot(spot_rng,theta2,label='Theta:model2')
-            ax[1,0].plot(spot_rng,rho2,label='Rho:model2')
-            ax[1,1].plot(spot_rng,vega2,label='Vega:model2')
-            ax[1,2].plot(spot_rng,volga2,label='Volga:model2')
-            ax[1,3].plot(spot_rng,vanna2,label='Vanna:model2')
+            ax[0,0].plot(spot_list,pl2,label='P&L:model2')  
+            ax[0,1].plot(spot_list,delta2,label='Delta:model2')
+            ax[0,2].plot(spot_list,gamma2,label='Gamma:model2')
+            ax[0,3].plot(spot_list,theta2,label='Theta:model2')
+            ax[1,0].plot(spot_list,rho2,label='Rho:model2')
+            ax[1,1].plot(spot_list,vega2,label='Vega:model2')
+            ax[1,2].plot(spot_list,volga2,label='Volga:model2')
+            ax[1,3].plot(spot_list,vanna2,label='Vanna:model2')
 
         else:
 
-            ax[0,0].plot(spot_rng,pl_diff,label='P&L: model2-model1') 
-            ax[0,1].plot(spot_rng,delta_diff,label='Delta: model2-model1')
-            ax[0,2].plot(spot_rng,gamma_diff,label='Gamma: model2-model1')
-            ax[0,3].plot(spot_rng,theta_diff,label='Theta: model2-model1')
-            ax[1,0].plot(spot_rng,rho_diff,label='Rho: model2-model1')
-            ax[1,1].plot(spot_rng,vega_diff,label='Vega: model2-model1')
-            ax[1,2].plot(spot_rng,volga_diff,label='Volga: model2-model1')
-            ax[1,3].plot(spot_rng,vanna_diff,label='Vanna: model2-model1')
+            ax[0,0].plot(spot_list,pl_diff,label='P&L: model2-model1') 
+            ax[0,1].plot(spot_list,delta_diff,label='Delta: model2-model1')
+            ax[0,2].plot(spot_list,gamma_diff,label='Gamma: model2-model1')
+            ax[0,3].plot(spot_list,theta_diff,label='Theta: model2-model1')
+            ax[1,0].plot(spot_list,rho_diff,label='Rho: model2-model1')
+            ax[1,1].plot(spot_list,vega_diff,label='Vega: model2-model1')
+            ax[1,2].plot(spot_list,volga_diff,label='Volga: model2-model1')
+            ax[1,3].plot(spot_list,vanna_diff,label='Vanna: model2-model1')
         
         ax[0,0].legend()
         ax[0,1].legend()
@@ -1591,35 +1595,39 @@ class Vanilla(Option):
                         
 def main_vanilla():
 
-    underlying='spy'
-    assetclass='EQD'
-    spot=50
-    vol=0.3
-    T=0.1
-    K =50
-    rate_usd=0.005
-    div_spy=0.02
+    underlying='USDCNH'
+    assetclass='FX'
+    vol=0.0498
+    T=1
+    K =7.115
+    rate_usd=1.67/100
+    div_spy=0.37/100
     quantity = 1
-    cp='put'
+    cp='call'
 
     op = Vanilla(underlying,assetclass,T,K,'E',cp,quantity)
 
-    op._nsteps_crr=100
-    op._npaths_mc=3000
+    BSM= op.bsm
+    Cox=op.crr
+    MC = op.mc_fast
+    PDE = op.pde
+
+    op._nsteps_crr=20
+    op._npaths_mc=100000
     op._nsteps_mc=200
-    op._rnd_seed=10000
-    op._vega_bump_is_percent = False
-    op._vega_bump=0.01
+    op._vega_bump=0.001
     op._delta_bump=0.1
 
-    op._ssteps_pde=100
-    op._tsteps_pde=100
+    op._ssteps_pde=800
+    op._tsteps_pde=300
 
     op._displayprogress = True
 
     op._spot_max_factor_pde = 5
 
-    op.spot_ladder(20,80,1,vol,rate_usd,div_spy,op.pricing_pde,False)
+    spot_list= np.linspace(6,8,100)
+
+    op.spot_ladder(spot_list,vol,rate_usd,div_spy,PDE,BSM,False)
 
 if __name__ =='__main__':
 
