@@ -35,7 +35,7 @@ class TARF(Option):
 
         self._npaths_mc = 10000
         self._nsteps_mc = 300
-        self._rnd_seed = 6666
+        self._rnd_seed = 10000
 
         self._delta_bump=1
         self._delta_bump_is_percent=True
@@ -44,14 +44,16 @@ class TARF(Option):
         self._vega_bump=0.01
         self._vega_bump_is_percent=False
         self._theta_bump=1/365
-
         self._vanna_dvega = False
+        self._rho_bump = 0.001
+
+        self._spot_minimum = 10e-6
 
     
     def gen_one_path(self,spot,vol,rate_d,rate_f):  # simulate and return the fixing spots along fixing schedule
 
         if spot<=0:
-            spot=0.0001
+            spot=self._spot_minimum
 
         n_steps = self._nsteps_mc
 
@@ -81,7 +83,7 @@ class TARF(Option):
     def gen_fixings(self,spot,vol,rate_d,rate_f):
 
         if spot<=0:
-            spot = 0.0001
+            spot = self._spot_minimum
 
         s_fix =[]
 
@@ -111,7 +113,7 @@ class TARF(Option):
         return s_fix
 
 
-    def pricing_mc(self,spot,vol,rate_d,rate_f,debug=False):
+    def mc(self,spot,vol,rate_d,rate_f,debug=False):
 
         n_steps = self._nsteps_mc
         n_paths = self._npaths_mc
@@ -140,7 +142,6 @@ class TARF(Option):
 
         payoff_by_path = []
 
-
         for i in range(n_paths):
 
             #s_fix=self.gen_one_path(spot,vol,rate_d,rate_f) 
@@ -163,6 +164,8 @@ class TARF(Option):
                         if (civ + max(K-s_fix[j],0)) < TIV:
 
                             payoff = payoff + df * N * (K - s_fix[j]) / s_fix[j]
+
+                            civ = civ + max(K-s_fix[j],0)
 
                         else:      # knock out event happens
 
@@ -198,7 +201,7 @@ class TARF(Option):
 
             percent_no_knock = path_no_knock / n_paths *100
 
-            print('Knock out distribution:')
+            print('Knocked out distribution:')
 
             for i in range(n_fix):
 
@@ -206,17 +209,16 @@ class TARF(Option):
 
                 print('%.2f%%' % stat_fix[i], end=', ')
             
-            print ('Percentage never knock out: %.2f%%. \n' % percent_no_knock)
+            print ('Percentage never knocked out: %.2f%%. \n' % percent_no_knock)
 
         return price
-
 
 
     def delta(self,spot,vol,rate_d,rate_f,model):
 
         if spot<=0:
 
-            spot = 0.0001
+            spot = self._spot_minimum
 
         bumpvalue = self._delta_bump
 
@@ -368,7 +370,7 @@ class TARF(Option):
     def volga(self,spot,vol,rate_d,rate_f,model):
 
         if spot<=0:
-            spot=0.0001
+            spot=self._spot_minimum
         
         vega = self.vega(spot,vol,rate_d,rate_f,model)
 
@@ -387,88 +389,143 @@ class TARF(Option):
         volga_value = (vega_up - vega)/(vol_up-vol)
 
         return volga_value
-        
+
+    def rho(self,spot,vol,rate_d,rate_f,model):
+
+        if spot<=0:
+
+            spot = self._spot_minimum
+
+        bumpvalue = self._rho_bump
+
+        price = model(spot,vol,rate_d,rate_f)
+
+        rate_d_up = rate_d + bumpvalue
+
+        price_up = model(spot,vol,rate_d_up,rate_f)
+
+        rho_d = (price_up - price) / (rate_d_up - rate_d) / 100
+
+        return rho_d
+
+    def rhof(self,spot,vol,rate_d,rate_f,model):
+
+        if spot<=0:
+
+            spot = self._spot_minimum
+
+        bumpvalue = self._rho_bump
+
+        price = model(spot,vol,rate_d,rate_f)
+
+        rate_f_up = rate_f + bumpvalue
+
+        price_up = model(spot,vol,rate_d,rate_f_up)
+
+        rho_f = (price_up - price) / (rate_f_up - rate_f) / 100
+
+        return rho_f
 
     
-    def spot_ladder(self,spot_start,spot_end,spot_step,vol,rate_d,rate_f,target_fn,fit_df=6):
+    
+    def spot_ladder(self,spot_list, vol, rate_d, rate_f):
 
+        n=len(spot_list)
 
-        spot_rng = np.arange(spot_start,spot_end,spot_step)
+        pl = []
+        delta=[]
+        gamma=[]
+        vega=[]
+        theta=[]
+        rho=[]
+        rhof=[]
+        volga=[]
+        vanna=[]
 
-        n=(spot_end-spot_start+spot_step)/spot_step
+        i = 0
 
-        # print('total steps is: %d' % n)
-
-        y = []
-
-        for s in spot_rng:
+        for s in spot_list:
   
-            i=(s-spot_start)/spot_step+1
-
             progress= int(i/n * 100)
 
-            #if progress % 10 ==0:
             print('Spot = %f, in progress %d complete' % (s, progress))
 
-            if target_fn.lower() == 'pl':
+            y_pl= self.mc(s,vol,rate_d,rate_f,True)
 
-                PL = self.pricing_mc(s,vol,rate_d,rate_f,True)
+            pl.append(y_pl)
 
-                y.append(PL)
+            y_delta = self.delta(s,vol,rate_d,rate_f,self.mc)
 
-            elif target_fn.lower() == 'delta':
+            delta.append(y_delta)
 
-                delta = self.delta(s,vol,rate_d,rate_f,self.pricing_mc)
+            y_gamma = self.gamma(s,vol,rate_d,rate_f,self.mc)
 
-                y.append(delta)
+            gamma.append(y_gamma)
 
-            elif  target_fn.lower() == 'gamma':
+            y_vega = self.vega(s,vol,rate_d,rate_f,self.mc)
 
-                gamma = self.gamma(s,vol,rate_d,rate_f,self.pricing_mc)
+            vega.append(y_vega)
 
-                y.append(gamma)
+            y_rho = self.rho(s,vol,rate_d,rate_f,self.mc)
 
-            elif target_fn.lower() == 'vega':
+            rho.append(y_rho)
 
-                vega = self.vega(s,vol,rate_d,rate_f,self.pricing_mc)
+            y_rhof = self.rhof(s,vol,rate_d,rate_f,self.mc)
 
-                y.append(vega)
-            
-            elif target_fn.lower() == 'theta':
-
-                theta = self.theta(s,vol,rate_d,rate_f,self.pricing_mc)
-
-                y.append(theta)
-            
-            elif target_fn.lower()=='vanna':
-
-                vanna = self.vanna(s,vol,rate_d,rate_f,self.pricing_mc)
-
-                y.append(vanna)
-
-            elif target_fn.lower()=='volga':
-
-                volga = self.volga(s,vol,rate_d,rate_f,self.pricing_mc)
-
-                y.append(volga)
-
-            
-
-
-        y_label = target_fn.lower()
-        reg = np.polyfit(spot_rng,y,fit_df)  # returns the fit curve polynominal function, order is fit_df
-        y_fit = np.polyval(reg,spot_rng)   # return the y value array given polynominal function and x value array
-
-        # print(y_fit)
+            rhof.append(y_rhof)
         
-        plt.figure()
-        plt.plot(spot_rng,y,c='b',label=y_label)
-        # plt.plot(spot_rng,y_fit,c='r',label=y_label+' fit curve')
-        plt.xlabel('spot')
-        plt.ylabel(y_label)
-        plt.legend(loc=4)
-        plt.title('Target redemption forward') 
-        plt.show()
+            y_theta = self.theta(s,vol,rate_d,rate_f,self.mc)
+
+            theta.append(y_theta)
+
+            y_vanna = self.vanna(s,vol,rate_d,rate_f,self.mc)
+
+            vanna.append(y_vanna)
+
+            y_volga = self.volga(s,vol,rate_d,rate_f,self.mc)
+
+            volga.append(y_volga)
+
+            i= i + 1
+
+        fig, ax = plt.subplots(ncols=4, nrows=2, figsize=(14,9))
+
+        ax[0,0].set_title("P&L")
+        ax[0,1].set_title("Delta")
+        ax[0,2].set_title("Gamma")
+        ax[0,3].set_title("Theta")
+        ax[1,0].set_title("Rho")
+        ax[1,1].set_title("Vega")
+        ax[1,2].set_title("Volga")
+        ax[1,3].set_title("Vanna")
+
+        ax[0,0].plot(spot_list,pl,label='P&L')  
+        ax[0,1].plot(spot_list,delta,label='Delta')
+        ax[0,2].plot(spot_list,gamma,label='Gamma')
+        ax[0,3].plot(spot_list,theta,label='Theta')
+        ax[1,0].plot(spot_list,rho,label='Rho')
+        ax[1,0].plot(spot_list,rhof,label='Rhof')
+        ax[1,1].plot(spot_list,vega,label='Vega')
+        ax[1,2].plot(spot_list,volga,label='Volga')
+        ax[1,3].plot(spot_list,vanna,label='Vanna')
+
+        ax[0,0].legend()
+        ax[0,1].legend()
+        ax[0,2].legend()
+        ax[0,3].legend()
+        ax[1,0].legend()
+        ax[1,1].legend()
+        ax[1,2].legend()
+        ax[1,3].legend()
+        
+        #plt.legend(loc=0)
+
+        fig.suptitle('Target Redemption Forward')
+        plt.show()       
+ 
+        # reg = np.polyfit(spot_list,pl,fit_df)  # returns the fit curve polynominal function, order is fit_df
+        # pl_fit = np.polyval(reg,spot_list)   # return the y value array given polynominal function and x value array
+        return None
 
 
 def main_tarf():
@@ -495,24 +552,19 @@ def main_tarf():
 
     # print(fixings_schedule)
 
-
     tarf1 = TARF(underlying,assetclass,strike,barrier,barrier_type,target,gear,notional,fixings_schedule)
 
-    tarf1._nsteps_mc =10*3
-
-    #price = tarf1.pricing_mc(spot,vol,rate_cnh,rate_usd,270,10000,None)
-    #print(price)
-
-    tarf1._npaths_mc = 10000
+    tarf1._nsteps_mc =300
+    tarf1._npaths_mc = 30000
     tarf1._nsteps_mc = 1000
-    tarf1._vega_bump = 0.05
-    tarf1._gamma_bump=1
+    tarf1._vega_bump = 0.01
+    tarf1._gamma_bump=0.1
     tarf1._gamma_bump_is_percent=True
     tarf1._rnd_seed = 10000
 
-    tarf1.spot_ladder(6.6,8.0,0.02,vol,rate_cnh,rate_usd,'vanna',6)
+    spot_list= np.arange(6.6,8,0.02)
 
-
+    tarf1.spot_ladder(spot_list,vol,rate_cnh,rate_usd)
 
 if __name__ =='__main__':
 
