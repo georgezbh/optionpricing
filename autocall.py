@@ -38,15 +38,15 @@ class Autocall_CCBN(object):  # Autocallable contingent coupon barrier notes
         self._nsteps_mc = 300
         self._rnd_seed = 10000
 
-        self._delta_bump=1
+        self._delta_bump=10
         self._delta_bump_is_percent=True
-        self._gamma_bump=1
+        self._gamma_bump=10
         self._gamma_bump_is_percent=True
-        self._vega_bump=0.05
+        self._vega_bump=0.1
         self._vega_bump_is_percent=False
         self._theta_bump=1/365
         self._vanna_dvega = False
-        self._rho_bump = 0.01
+        self._rho_bump = 0.1
 
         self._spot_minimum = 10e-6
 
@@ -287,7 +287,7 @@ class Autocall_CCBN(object):  # Autocallable contingent coupon barrier notes
 
         price_shift = model(spot,vol,rate,div)
 
-        theta_fd= price_shift - price
+        theta_fd= (price_shift - price) / bumpvalue * 1/365
 
         self._fixing_schedule = old_fixing_time
         
@@ -500,12 +500,15 @@ def main_autocall():
 
     autocall1 = Autocall_CCBN(coupon,principal,call_level,barrier,strike,fixings_schedule)
 
-    autocall1._npaths_mc =50000
-    autocall1._vega_bump=0.05
+    autocall1._npaths_mc =10000
+    autocall1._delta_bump=10
+    autocall1._gamma_bump=10
+    autocall1._vega_bump=0.1
+    autocall1._theta_bump=0.1
 
     # autocall1.pricer(spot,vol,rate,div,True)
 
-    spot_list= np.arange(200,300,2)
+    spot_list= np.arange(150,400,5)
 
     autocall1.spot_ladder(spot_list,vol,rate,div)
 
