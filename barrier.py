@@ -51,6 +51,10 @@ class Barrier(object):
         self._spot_minimum = 10e-6
         self._displayprogress = True
 
+        self._npaths_mc = 1000
+        self._nsteps_mc = 300
+        self._rnd_seed = 12345
+
         self._default_model = self.pde
 
 
@@ -473,14 +477,14 @@ class Barrier(object):
 
             delta = BSM(spot,vol,rate_c,rate_a,'delta') - delta_out * Q
             gamma = BSM(spot,vol,rate_c,rate_a,'gamma') - gamma_out * Q
-            theta = BSM(spot,vol,rate_c,rate_a,'theta') - gamma_out * Q
+            theta = BSM(spot,vol,rate_c,rate_a,'theta') - theta_out * Q
             pl = BSM(spot,vol,rate_c,rate_a,'pl') - pl_out * Q
 
         else:
 
             delta = delta_out * Q
             gamma = gamma_out * Q
-            theta = gamma_out * Q
+            theta = theta_out * Q
             pl =  pl_out * Q
 
         if greeks.lower() == 'delta':
@@ -498,6 +502,137 @@ class Barrier(object):
         else:
 
             return pl
+
+    def mc(self,spot,vol,rate_c,rate_a):
+
+        Q = self._quantity
+
+        spot = max(spot,self._spot_minimum)
+
+        n_paths = self._npaths_mc
+        n_steps = self._nsteps_mc
+        T = self._maturity
+        dt = T / n_steps
+        K = self._strike
+        B_level = self._barrier
+        B_type = self._barrier_type
+
+        knockout = False
+        knockin = False
+
+        S = spot
+
+        c = []
+
+        p = []
+
+        D = math.exp(-rate_c * T)
+
+        sigma = math.sqrt(dt)
+
+        mu = (rate_c - rate_a) * dt 
+
+        np.random.seed(self._rnd_seed)
+
+        rr= np.random.normal(mu,sigma,(n_paths,n_steps))
+
+        S = np.zeros((n_paths,))
+ 
+
+        for i in range(n_paths):
+
+            for j in range(n_steps):
+
+                if B_type == 'UO' and S >= B_level:
+
+                    knockout = True
+
+                    break
+
+                elif B_type == 'DO' and S <= B_level:
+
+                    knockout = True
+
+                    break
+                
+                elif B_type == 'UI' and S >= B_level:
+
+                    knockin = True
+
+                elif B_type == 'DI' and S <= B_level:
+
+                    knockin = True
+                
+                else: 
+
+                    pass
+
+                dS = S*((rate_c-rate_a) * dt + vol * random.gauss(0,sigma))
+
+                S= S + dS
+            
+            if B_type == 'UO' and S >= B_level:
+
+                knockout = True
+
+            elif B_type == 'DO' and S <= B_level:
+
+                knockout = True
+            
+            elif B_type == 'UI' and S >= B_level:
+
+                knockin = True
+
+            elif B_type == 'DI' and S <= B_level:
+
+                knockin = True
+
+            if B_type in ['UO', 'DO']:
+
+                if knockout == True:
+
+                    call_payoff = 0
+                    put_payoff = 0
+                
+                else:
+
+                    call_payoff = D * max(S-K , 0)
+                    put_payoff = D* max(K-S , 0)
+
+            elif B_type in ['UI','DI']:
+
+                if knockin == True:
+
+                    call_payoff= D * max(S-K , 0)
+                    put_payoff = D* max(K-S , 0)
+                
+                else:
+
+                    call_payoff = 0
+                    put_payoff = 0
+            
+            else:
+
+                call_payoff = 0
+                put_payoff = 0
+
+            c.append(call_payoff)
+            p.append(put_payoff)
+
+        call_price = statistics.mean(c) * Q
+        put_price = statistics.mean(p) * Q
+
+        if self._cp =='call':
+
+            return call_price
+        
+        elif self._cp =='put':
+
+            return put_price
+        
+        else:
+
+            return -999999
 
 
     def delta(self,spot,vol,rate_c,rate_a,model_alt=None):
@@ -918,25 +1053,30 @@ class Barrier(object):
 
 def main_barrier():
 
-    spot = 50
+    spot = 100
     vol=0.3
-    T=120/365
-    K =50
-    rate=1.67/100
-    div=2/100
+    T=2
+    K =100
+    rate=0
+    div=0
     quantity = 1
-    cp='call'
+    cp='put'
     B = 70
-    Btype ='UO'
+    Btype ='DO'
 
     op = Barrier(B,Btype,K,cp,T,quantity)
 
     PDE= op.pde
     BSM = op.bsm
+    MC =op.mc
 
-    spot_list= np.linspace(0,100,100)
+    op._npaths_mc = 5000
+    op._nsteps_mc = 200
+    op._rnd_seed = 12345
 
-    op.spot_ladder(spot_list,vol,rate,div,PDE)
+    spot_list= np.linspace(50,150,201)
+
+    op.spot_ladder(spot_list,vol,rate,div,PDE,BSM)
 
 if __name__ =='__main__':
 
