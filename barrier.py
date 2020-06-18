@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 'Barrier option pricing module'
-'with PDE method'
+'with PDE method and Monte Carlo simulation method'
 
 __author__ = 'George Zhao'
 
@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 
 import vanilla
+
+import pandas as pd
 
 class Barrier(object):
     
@@ -510,130 +512,76 @@ class Barrier(object):
         spot = max(spot,self._spot_minimum)
 
         n_paths = self._npaths_mc
-        n_steps = self._nsteps_mc
+        t_steps = self._nsteps_mc
         T = self._maturity
-        dt = T / n_steps
+        dt = T / t_steps
         K = self._strike
         B_level = self._barrier
         B_type = self._barrier_type
 
-        knockout = False
-        knockin = False
+        if self._cp.lower() == 'call' or self._cp.lower()=='c':
 
-        S = spot
+            cp = 'c'
 
-        c = []
+        else:
 
-        p = []
+            cp = 'p'
 
         D = math.exp(-rate_c * T)
 
-        sigma = math.sqrt(dt)
+        sigma = vol*math.sqrt(dt)
 
         mu = (rate_c - rate_a) * dt 
 
         np.random.seed(self._rnd_seed)
 
-        rr= np.random.normal(mu,sigma,(n_paths,n_steps))
+        rr= np.random.normal(mu,sigma,(n_paths,t_steps))
 
-        S = np.zeros((n_paths,))
- 
+        S = np.zeros((n_paths,t_steps+1)) 
 
-        for i in range(n_paths):
+        S[:,0] = spot 
 
-            for j in range(n_steps):
+        for t in range(t_steps):
 
-                if B_type == 'UO' and S >= B_level:
+            S[:,t+1] =S[:,t] * (1+rr[:,t])
 
-                    knockout = True
+        S_max = np.max(S,axis=1)  # max spot of each path
+        S_min = np.min(S,axis=1)  # min spot of each path
 
-                    break
+        if B_type == 'UO':
 
-                elif B_type == 'DO' and S <= B_level:
+            f = 1 * (S_max<B_level)
 
-                    knockout = True
+        elif B_type == 'UI':
 
-                    break
-                
-                elif B_type == 'UI' and S >= B_level:
-
-                    knockin = True
-
-                elif B_type == 'DI' and S <= B_level:
-
-                    knockin = True
-                
-                else: 
-
-                    pass
-
-                dS = S*((rate_c-rate_a) * dt + vol * random.gauss(0,sigma))
-
-                S= S + dS
-            
-            if B_type == 'UO' and S >= B_level:
-
-                knockout = True
-
-            elif B_type == 'DO' and S <= B_level:
-
-                knockout = True
-            
-            elif B_type == 'UI' and S >= B_level:
-
-                knockin = True
-
-            elif B_type == 'DI' and S <= B_level:
-
-                knockin = True
-
-            if B_type in ['UO', 'DO']:
-
-                if knockout == True:
-
-                    call_payoff = 0
-                    put_payoff = 0
-                
-                else:
-
-                    call_payoff = D * max(S-K , 0)
-                    put_payoff = D* max(K-S , 0)
-
-            elif B_type in ['UI','DI']:
-
-                if knockin == True:
-
-                    call_payoff= D * max(S-K , 0)
-                    put_payoff = D* max(K-S , 0)
-                
-                else:
-
-                    call_payoff = 0
-                    put_payoff = 0
-            
-            else:
-
-                call_payoff = 0
-                put_payoff = 0
-
-            c.append(call_payoff)
-            p.append(put_payoff)
-
-        call_price = statistics.mean(c) * Q
-        put_price = statistics.mean(p) * Q
-
-        if self._cp =='call':
-
-            return call_price
+            f = 1 * (S_max>=B_level)
         
-        elif self._cp =='put':
+        elif B_type == 'DO':
 
-            return put_price
+            f = 1 * (S_min>B_level)
+
+        elif B_type == 'DI':
+
+            f = 1 * (S_min<=B_level)
+
+        S_T = S[:,-1]
+
+        if cp=='c':
+
+            p = S_T - K
         
-        else:
+        elif cp == 'p':
 
-            return -999999
+            p = K - S_T
 
+        p[p<0] = 0
+
+        p = D * p * f
+
+        price = p.mean()
+
+        return price
+  
 
     def delta(self,spot,vol,rate_c,rate_a,model_alt=None):
 
@@ -821,7 +769,7 @@ class Barrier(object):
 
             price_shift = model(spot,vol,rate_c,rate_a)
 
-            theta_value = (price_shift- price)
+            theta_value = (price_shift- price) / bumpvalue * 1/365
 
             self._maturity= self._maturity + bumpvalue
         
@@ -1054,8 +1002,8 @@ class Barrier(object):
 def main_barrier():
 
     spot = 100
-    vol=0.3
-    T=2
+    vol=0.2
+    T=1
     K =100
     rate=0
     div=0
@@ -1070,13 +1018,22 @@ def main_barrier():
     BSM = op.bsm
     MC =op.mc
 
-    op._npaths_mc = 5000
-    op._nsteps_mc = 200
-    op._rnd_seed = 12345
+    op._npaths_mc = 10000
+    op._nsteps_mc = 365
+    op._rnd_seed = 10000
 
-    spot_list= np.linspace(50,150,201)
 
-    op.spot_ladder(spot_list,vol,rate,div,PDE,BSM)
+    op._delta_bump=2
+    op._gamma_bump=2
+    op._vega_bump=0.1
+    op._theta_bump=10/365
+    op._rho_bump = 0.05
+
+    spot_list= np.linspace(30,150,121)
+
+    # print(op.mc(spot,vol,rate,div))
+
+    op.spot_ladder(spot_list,vol,rate,div,MC,PDE)
 
 if __name__ =='__main__':
 
