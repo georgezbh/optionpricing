@@ -3,14 +3,16 @@ It starts with my python learning incentive and the goal is to have a free, user
 
 Currently it can price:
 
-Vanilla options with Black-Scholes, binomial tree, PDE and Monte carlor simulation
+Vanilla options with Black-Scholes, binomial tree, PDE and Monte Carlo simulation
+
+Signle barrier (up & down) & (in & out) option with PDE and Monte Carlo
 
 Target redemption forward with Monte Carlo simulation
 
+Autocallable with Monte Carlo simulation
 
 All with constant volatility (which is obviously not true in reality)
 
 Next step:
 
-1. Add Autocallable in the library
-2. Start volatility smile management tool with Local vol and Henston model.
+Develop a volatility smile management tool with Local vol, Henston model and SABR model.
