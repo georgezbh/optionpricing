@@ -6,22 +6,13 @@
 
 __author__ = 'George Zhao'
 
-
-import math
-
-import statistics
-
-import random
+from math import sqrt, exp, log
 
 import numpy as np
 
 import matplotlib.pyplot as plt
 
 from scipy.stats import norm
-
-import vanilla
-
-import pandas as pd
 
 class Barrier(object):
     
@@ -62,7 +53,7 @@ class Barrier(object):
 
     def forward(self,spot,rate_c,rate_a):
     
-        fwd=math.exp((rate_c-rate_a)*self._maturity)*spot
+        fwd=exp((rate_c-rate_a)*self._maturity)*spot
 
         return fwd
 
@@ -86,18 +77,18 @@ class Barrier(object):
 
         T = self._maturity
         K = self._strike
-        D = math.exp(-rate_c*T)
+        D = exp(-rate_c*T)
 
         N=norm.cdf     # standard normal distribution cumulative function
         N_pdf = norm.pdf
 
-        d1 = (math.log(fwd/K)+0.5*vol**2*T)/(vol*math.sqrt(T)) 
-        d2 = d1-vol*math.sqrt(T)
+        d1 = (log(fwd/K)+0.5*vol**2*T)/(vol * sqrt(T)) 
+        d2 = d1 - vol * sqrt(T)
 
         if greeks.lower() =='delta':
 
-            call_delta = N(d1) * math.exp(-rate_a*T)
-            put_delta = (N(d1)-1) * math.exp(-rate_a*T)
+            call_delta = N(d1) * exp(-rate_a*T)
+            put_delta = (N(d1)-1) * exp(-rate_a*T)
 
             if cp =='c':
 
@@ -108,20 +99,20 @@ class Barrier(object):
 
         elif greeks.lower()=='gamma':
 
-            gamma = math.exp(-rate_a*T)*N_pdf(d1) / (spot*vol*math.sqrt(T))
+            gamma = exp(-rate_a*T)*N_pdf(d1) / (spot*vol*sqrt(T))
 
             return gamma * Q
 
         elif greeks.lower()=='vega':
 
-            vega = spot*N_pdf(d1)*math.sqrt(T) * math.exp(-rate_a*T) / 100
+            vega = spot*N_pdf(d1)*sqrt(T) * exp(-rate_a*T) / 100
 
             return vega * Q
         
         elif greeks.lower()=='theta':
 
-            call_theta = (-spot*N_pdf(d1)*vol*math.exp(-rate_a*T) /(2*math.sqrt(T)) - rate_c*K*math.exp(-rate_c*T)*N(d2)+rate_a*spot*math.exp(-rate_a*T)*N(d1))*self._theta_bump
-            put_theta = (-spot*N_pdf(d1)*vol*math.exp(-rate_a*T) /(2*math.sqrt(T)) + rate_c*K*math.exp(-rate_c*T)*N(-d2)-rate_a*spot*math.exp(-rate_a*T)*N(-d1))*self._theta_bump
+            call_theta = (-spot*N_pdf(d1)*vol*exp(-rate_a*T) /(2*sqrt(T)) - rate_c*K*exp(-rate_c*T)*N(d2)+rate_a*spot*exp(-rate_a*T)*N(d1))*self._theta_bump
+            put_theta = (-spot*N_pdf(d1)*vol*exp(-rate_a*T) /(2*sqrt(T)) + rate_c*K*exp(-rate_c*T)*N(-d2)-rate_a*spot*exp(-rate_a*T)*N(-d1))*self._theta_bump
 
             if cp =='c':
 
@@ -132,8 +123,8 @@ class Barrier(object):
 
         elif greeks.lower()=='rho':
 
-            call_rho = K*T*math.exp(-rate_c*T) * N(d2) / 100
-            put_rho = -K*T*math.exp(-rate_c*T) * N(-d2) / 100
+            call_rho = K*T*exp(-rate_c*T) * N(d2) / 100
+            put_rho = -K*T*exp(-rate_c*T) * N(-d2) / 100
 
             if cp =='c':
 
@@ -159,19 +150,17 @@ class Barrier(object):
 
         Q = self._quantity
         
-        exp = math.exp
-
         if spot<=0:
 
             spot = self._spot_minimum
 
         if self._cp.lower()=='call' or self._cp.lower()=='c':
 
-            cp='c'
+            cp = 1
 
         else:
 
-            cp='p'
+            cp = -1
 
         s_steps = self._ssteps_pde
 
@@ -203,7 +192,7 @@ class Barrier(object):
             gamma_out = 0
             theta_out=0
 
-        else:
+        else:  # if spot does not knock barrier for an out option
 
             if spot > spot_max: # if the spot is outside the grids
 
@@ -211,7 +200,7 @@ class Barrier(object):
 
                 fwd= self.forward(spot,rate_c,rate_a)
 
-                fwd_shift = spot * math.exp((rate_c - rate_a) * (T-dt))
+                fwd_shift = spot * exp((rate_c - rate_a) * (T-dt))
 
                 spot_up = spot + ds
                 spot_down = spot -ds
@@ -219,19 +208,10 @@ class Barrier(object):
                 fwd_up = self.forward(spot_up,rate_c,rate_a)
                 fwd_down = self.forward(spot_down,rate_c,rate_a)
 
-                if cp=='c':
-
-                    pl_out = max(fwd-K,0) * math.exp(-rate_c*T)
-                    pl_up = max(fwd_up-K,0) * math.exp(-rate_c*T)
-                    pl_down = max(fwd_down-K,0) * math.exp(-rate_c*T)
-                    pl_shift = max(fwd_shift-K,0) * math.exp(-rate_c*(T-dt))
-
-                else:
-
-                    pl_out = max(K-fwd,0) * math.exp(-rate_c*T)
-                    pl_up = max(K-fwd_up,0) * math.exp(-rate_c*T)
-                    pl_down = max(K-fwd_down,0) * math.exp(-rate_c*T)
-                    pl_shift = max(K-fwd_shift,0) * math.exp(-rate_c*(T-dt))
+                pl_out = max(cp*(fwd-K),0) * exp(-rate_c*T)
+                pl_up = max(cp*(fwd_up-K),0) * exp(-rate_c*T)
+                pl_down = max(cp*(fwd_down-K),0) * exp(-rate_c*T)
+                pl_shift = max(cp*(fwd_shift-K),0) * exp(-rate_c*(T-dt))
                 
                 delta_out = (pl_up - pl_down) / (2*ds)
                 gamma_out = (pl_up-2*pl + pl_down) / (ds**2)
@@ -260,108 +240,98 @@ class Barrier(object):
 
                 grid= np.zeros((s_steps+1,t_steps+1))
 
-                for i in range(s_steps+1):  # boundry condition at T: for payoff corresponds to each spot prices at maturity
+                p_T = cp * (spot_rng - K)
 
-                    if (B_type in ['UI','UO']) and spot_rng[i] >=B_level:
+                p_T[p_T<0] = 0  # vanilla payoff at time T
 
-                        grid[i,t_steps] = 0
+                if B_type in ['UI','UO']:
 
-                    elif (B_type in ['DI','DO']) and spot_rng[i] <= B_level:
+                    f = 1 * (spot_rng < B_level)  # for up & out option, f=1 only if spot < Barrier
 
-                        grid[i,t_steps] = 0
-                    
-                    else:
+                elif B_type in ['DI','DO']:
 
-                        if cp=='c':
+                    f = 1 * (spot_rng > B_level) # for down & out option, f=1 only if spot > Barrier
 
-                            grid[i,t_steps] = max (spot_rng[i]-K,0) 
+                grid[:,-1] = p_T * f # boundry condition at T: for payoff corresponds to each spot prices at maturity
 
-                        else:
-                            grid[i,t_steps] = max (K-spot_rng[i],0)        
+                time_rng = np.arange(t_steps) * dt
 
-                for j in range(t_steps): # boundry condition at spot =0 and spot = s_max
+                DF_t = np.exp(-rate_c * (T-time_rng)) # discount factor array, size t_steps x 1
 
-                    DF_t = exp(-rate_c*(T-j*dt))
+                F_t = spot_max * np.exp((rate_c-rate_a)*(T-time_rng))  # forward price along the spot upper boundary, size t_steps x 1
 
-                    F_t = spot_rng[s_steps] * exp((rate_c-rate_a) * (T-j*dt))
+                grid[0,:t_steps] = max(cp * (0-K),0) * DF_t
 
-                    if cp=='c':
+                g_temp = cp * (F_t - K)
 
-                        grid[0,j] = 0
+                g_temp[g_temp<0]=0
 
-                        grid[s_steps,j] = max(F_t - K,0) * DF_t
-                    
-                    else:
+                grid[s_steps,:t_steps] = g_temp * DF_t 
 
-                        grid[0,j] = max(K,0)* DF_t
+                if (B_type in ['UI','UO']):
 
-                        grid[s_steps,j] = 0
+                    grid[s_steps,:] = 0
+                
+                elif (B_type in ['DI','DO']):
 
-                    if (B_type in ['UI','UO']) and spot_rng[s_steps] >=B_level:
-
-                        grid[s_steps,j] = 0
-
-                    elif (B_type in ['DI','DO']) and spot_rng[s_steps]<= B_level:
-
-                        grid[s_steps,j] = 0
-                        grid[0,j] = 0
+                    grid[0,:]=0
                 
                 for t in range(t_steps-1,-1,-1):  # from t=t_step-1 to t=0
 
-                    A = np.zeros((s_steps-1,s_steps-1))
+                    i_uo = max(np.where(spot_rng < B_level)[0])
+                    i_do = min(np.where(spot_rng > B_level)[0])
 
-                    B = np.zeros((1,s_steps-1))
+                    if (B_type in ['UI','UO']):
 
-                    for i in range(1,s_steps):   # index from 1 to s_steps-1
+                        A = np.zeros((i_uo,i_uo))
+                        B = np.zeros((1,i_uo))
 
-                        if i==1 and cp=='c':  # Van Neuman boundary condition=0 and secondary order condition=0 for call
+                        i_start = 1
+                        i_end = i_uo+1
 
-                            a=0
-                            b=-1/dt-rate_c
-                            c=0
-                            d=-1/dt
+                    elif (B_type in ['DI','DO']):
 
-                        elif i==1 and cp=='p': # Van Neuman boundary condition=-exp(-q*T) and secondary order condition=0 for call
+                        A = np.zeros((s_steps-i_do,s_steps-i_do))
+                        B = np.zeros((1,s_steps-i_do))
 
-                            a=0
-                            b=-1/dt-rate_c
-                            c=0
-                            d=-1/dt
+                        i_start = i_do
+                        i_end = s_steps
 
-                        else:   
+                    for i in range(i_start,i_end):   # index from 1 to s_steps-1
 
-                            a = 0.5* (vol**2) * (i**2) - 0.5 * (rate_c-rate_a)*i
-                            b = -1/dt - (vol**2)*(i**2)- rate_c
-                            c = 0.5 * (vol**2) * (i**2) + 0.5* (rate_c - rate_a)*i
-                            d =- 1/ dt
+                        a = 0.5* (vol**2) * (i**2) - 0.5 * (rate_c-rate_a)*i
+                        b = -1/dt - (vol**2)*(i**2)- rate_c
+                        c = 0.5 * (vol**2) * (i**2) + 0.5* (rate_c - rate_a)*i
+                        d = - 1/ dt
                         
                         # construct matrix A and B in AX=B
-                        if i == 1:
-                            if cp=='c':
-                                B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  
-                            else:
-                                B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i] * math.exp(-rate_a*(T-t*dt))
+                        if i == i_start:
+  
+                            B[0,i-i_start] = d * grid[i,t+1] -  a * grid[i-1,t]  
+                   
+                            #B[0,i-1] = d * grid[i,t+1] -  a * grid[i-1,t]  +(rate_c-rate_a) * spot_rng[i] * exp(-rate_a*(T-t*dt))
 
-                            A[i-1,i]=c
-        
-                        elif i == s_steps-1:
+                            A[i-i_start,i-i_start+1]=c
 
-                            B[0,i-1]=d*grid[i,t+1]-c*grid[i+1,t]
+  
+                        elif i == i_end-1:
 
-                            A[i-1,i-2] =a
+                            B[0,i-i_start]=d*grid[i,t+1]-c*grid[i+1,t]
+
+                            A[i-i_start,i-i_start-1] =a
 
                         else:
 
-                            B[0,i-1]=d*grid[i,t+1]
+                            B[0,i-i_start]=d*grid[i,t+1]
 
-                            A[i-1,i-2] =a
-                            A[i-1,i]=c
+                            A[i-i_start,i-i_start-1] =a
+                            A[i-i_start,i-i_start+1]=c
 
-                        A[i-1,i-1]=b
+                        A[i-i_start,i-i_start]=b
 
                     V = np.linalg.solve(A,B.T)
 
-                    grid[1:s_steps,t] = V[:,0]
+                    grid[i_start:i_end,t] = V[:,0]
 
                 # plt.figure()
                 # plt.plot(spot_rng,grid[0:s_steps+1,0] ,label='pde test')
@@ -444,7 +414,7 @@ class Barrier(object):
 
                         if cp == 'c':
 
-                            delta1 = math.exp(-rate_a*T)
+                            delta1 = exp(-rate_a*T)
 
                         else:
 
@@ -527,11 +497,12 @@ class Barrier(object):
 
             cp = 'p'
 
-        D = math.exp(-rate_c * T)
+        D = exp(-rate_c * T)
 
-        sigma = vol*math.sqrt(dt)
+        sigma = vol * sqrt(dt)
 
         mu = (rate_c - rate_a) * dt 
+        #mu=(rate_c-rate_a-0.5*vol**2)*dt
 
         np.random.seed(self._rnd_seed)
 
@@ -543,6 +514,7 @@ class Barrier(object):
 
         for t in range(t_steps):
 
+            #S[:,t+1] = S[:,t] * np.exp(rr[:,t])
             S[:,t+1] =S[:,t] * (1+rr[:,t])
 
         S_max = np.max(S,axis=1)  # max spot of each path
@@ -942,7 +914,7 @@ class Barrier(object):
 
         fig, ax = plt.subplots(ncols=4, nrows=2, figsize=(14,9))
 
-        ax[0,0].set_title("P&L")
+        ax[0,0].set_title("MV")
         ax[0,1].set_title("Delta")
         ax[0,2].set_title("Gamma")
         ax[0,3].set_title("Theta")
@@ -1001,16 +973,16 @@ class Barrier(object):
 
 def main_barrier():
 
-    spot = 100
+    spot = 50
     vol=0.2
     T=1
-    K =100
+    K =50
     rate=0
     div=0
     quantity = 1
-    cp='put'
-    B = 70
-    Btype ='DO'
+    cp= 'call'
+    B = 65
+    Btype ='UO'
 
     op = Barrier(B,Btype,K,cp,T,quantity)
 
@@ -1018,18 +990,20 @@ def main_barrier():
     BSM = op.bsm
     MC =op.mc
 
-    op._npaths_mc = 10000
-    op._nsteps_mc = 365
+    op._npaths_mc = 5000
+    op._nsteps_mc = 200
     op._rnd_seed = 10000
 
+    op._tsteps_pde = 200
+    op._ssteps_pde = 300
 
-    op._delta_bump=2
-    op._gamma_bump=2
-    op._vega_bump=0.1
-    op._theta_bump=10/365
-    op._rho_bump = 0.05
+    op._delta_bump=1
+    op._gamma_bump=1
+    op._vega_bump=0.01
+    op._theta_bump=1/365
+    op._rho_bump = 0.01
 
-    spot_list= np.linspace(30,150,121)
+    spot_list= np.linspace(30,100,71)
 
     # print(op.mc(spot,vol,rate,div))
 
