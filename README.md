@@ -15,4 +15,6 @@ All with constant volatility (which is obviously not true in reality)
 
 Next step:
 
-Develop a volatility smile management tool with Local vol, Henston model and SABR model.
+1. Develop a volatility smile management tool with Local vol, Henston model and SABR model.
+2. Refactor code to replace array manipulation using Numpy to impove performance
+3. CUDA with numba implementation to utilize GPU
