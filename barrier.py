@@ -15,8 +15,9 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy.interpolate import interp1d
 
-class Barrier(object):
-    
+
+class Barrier(object):    
+
     def __init__(self, barrier, barrier_type, strike, cp, maturity, quantity):
 
         self._barrier = barrier
@@ -57,6 +58,7 @@ class Barrier(object):
         fwd_array = exp((rate_c-rate_a)*self._maturity) * spot_array
 
         return fwd_array
+
 
     def bsm(self,spot_array,vol,rate_c,rate_a,greeks='mv'):
 
@@ -697,6 +699,7 @@ class Barrier(object):
 
             return mv
 
+
     def mc(self,spot,vol,rate_c,rate_a):
 
         Q = self._quantity
@@ -705,45 +708,46 @@ class Barrier(object):
 
         n=spot.size
 
-        n_paths = self._npaths_mc
-        t_steps = self._nsteps_mc
+        n_path = self._npaths_mc
+        n_time = self._nsteps_mc
         T = self._maturity
-        dt = T / t_steps
+        dt = T / n_time
         K = self._strike
         B_level = self._barrier
         B_type = self._barrier_type
 
         if self._cp.lower() in('call','c'): 
 
-            cp = 'c'
+            cp = 1
 
         else:
 
-            cp = 'p'
+            cp = -1
 
         D = exp(-rate_c * T)
 
         sigma = vol * sqrt(dt)
 
         mu = (rate_c - rate_a) * dt 
-        #mu=(rate_c-rate_a-0.5*vol**2)*dt
 
         np.random.seed(self._rnd_seed)
 
-        mv = np.arange(n)
+        mv = np.zeros(n)
+
         i=0
+
         for s in spot:
 
-            print('spot = %.2f' % s)
+            # print('spot = %.2f' % s)
 
-            rr= np.random.normal(mu,sigma,(n_paths,t_steps))
+            rr= np.random.normal(mu,sigma,(n_path,n_time))
             #rr= np.random.normal(0,sqrt(dt),(n_paths,t_steps))*vol + mu
 
-            S = np.zeros((n_paths,t_steps+1)) 
+            S = np.zeros((n_path,n_time+1)) 
 
             S[:,0] = s 
 
-            for t in range(t_steps):
+            for t in range(n_time):
 
                 #S[:,t+1] = S[:,t] * np.exp(rr[:,t])
                 S[:,t+1] =S[:,t] * (1+rr[:,t])
@@ -769,16 +773,8 @@ class Barrier(object):
 
             S_T = S[:,-1]
 
-            if cp=='c':
-
-                p = S_T - K
+            p = (S_T - K)*cp
             
-            elif cp == 'p':
-
-                p = K - S_T
-
-            #p[p<0] = 0
-            #p = D * p * f
             p = np.maximum(p,0) * D * f
 
             mv[i] = p.mean()*Q
@@ -902,6 +898,7 @@ class Barrier(object):
         
         return vega_value
 
+
     def rho(self,spot,vol,rate_c,rate_a,model_alt=None):
 
         if model_alt is None:
@@ -935,7 +932,7 @@ class Barrier(object):
             rho_value = (price_up- price)/(rate_c_up-rate_c) / 100
         
         return rho_value
-    
+
     def theta(self,spot,vol,rate_c,rate_a,model_alt=None):
 
         if model_alt is None:
@@ -970,7 +967,7 @@ class Barrier(object):
         
         return theta_value
 
-    
+
     def volga(self,spot,vol,rate_c,rate_a,model_alt=None):
 
         if model_alt is None:
@@ -1053,7 +1050,7 @@ class Barrier(object):
 
         return vanna_value
 
-    
+
     def spot_ladder(self, spot_array, vol , rate_c , rate_a , model1=None, model2=None):
 
         s = spot_array
@@ -1150,7 +1147,7 @@ def main_barrier():
     quantity = 100
     cp= 'call'
     B = 80
-    Btype ='UI'
+    Btype ='UO'
 
     op = Barrier(B,Btype,K,cp,T,quantity)
 
@@ -1159,12 +1156,12 @@ def main_barrier():
     BSM = op.bsm
     MC =op.mc
 
-    op._npaths_mc = 5000
-    op._nsteps_mc = 200
+    op._npaths_mc = 10000
+    op._nsteps_mc = 300
     op._rnd_seed = 10000
 
     op._tsteps_pde = 365
-    op._ssteps_pde = 600
+    op._ssteps_pde = 300
 
     op._delta_bump=0.1
     op._gamma_bump=0.1
@@ -1172,9 +1169,9 @@ def main_barrier():
     op._theta_bump=1/365
     op._rho_bump = 0.01
 
-    spot_array= np.linspace(0,240,400)
+    spot_array= np.linspace(0,80,100)
 
-    op.spot_ladder(spot_array,vol,rate,div,MC)
+    op.spot_ladder(spot_array,vol,rate,div,PDE,MC)
 
 if __name__ =='__main__':
 
