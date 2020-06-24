@@ -702,11 +702,10 @@ class Barrier(object):
 
     def mc(self,spot,vol,rate_c,rate_a):
 
+        print('spot= %.3f' % spot)
         Q = self._quantity
 
-        spot[spot<=0]=self._spot_minimum
-
-        n=spot.size
+        spot=max(self._spot_minimum,spot)
 
         n_path = self._npaths_mc
         n_time = self._nsteps_mc
@@ -732,59 +731,139 @@ class Barrier(object):
 
         np.random.seed(self._rnd_seed)
 
-        mv = np.zeros(n)
+        # mv = np.zeros(n)
 
-        i=0
+        #i=0
 
-        for s in spot:
+        #for s in spot:
 
-            # print('spot = %.2f' % s)
+        rr= np.random.normal(mu,sigma,(n_path,n_time))
+        #rr= np.random.normal(0,sqrt(dt),(n_paths,t_steps))*vol + mu
 
-            rr= np.random.normal(mu,sigma,(n_path,n_time))
-            #rr= np.random.normal(0,sqrt(dt),(n_paths,t_steps))*vol + mu
+        S = np.zeros((n_path,n_time+1)) 
 
-            S = np.zeros((n_path,n_time+1)) 
+        S[:,0] = spot 
 
-            S[:,0] = s 
+        for t in range(n_time):
 
-            for t in range(n_time):
+            #S[:,t+1] = S[:,t] * np.exp(rr[:,t])
+            S[:,t+1] =S[:,t] * (1+rr[:,t])
 
-                #S[:,t+1] = S[:,t] * np.exp(rr[:,t])
-                S[:,t+1] =S[:,t] * (1+rr[:,t])
+        S_max = np.max(S,axis=1)  # max spot of each path
+        S_min = np.min(S,axis=1)  # min spot of each path
 
-            S_max = np.max(S,axis=1)  # max spot of each path
-            S_min = np.min(S,axis=1)  # min spot of each path
+        if B_type == 'UO':
 
-            if B_type == 'UO':
+            f = 1 * (S_max<B_level)
 
-                f = 1 * (S_max<B_level)
+        elif B_type == 'UI':
 
-            elif B_type == 'UI':
+            f = 1 * (S_max>=B_level)
+        
+        elif B_type == 'DO':
 
-                f = 1 * (S_max>=B_level)
-            
-            elif B_type == 'DO':
+            f = 1 * (S_min>B_level)
 
-                f = 1 * (S_min>B_level)
+        elif B_type == 'DI':
 
-            elif B_type == 'DI':
+            f = 1 * (S_min<=B_level)
 
-                f = 1 * (S_min<=B_level)
+        S_T = S[:,-1]
 
-            S_T = S[:,-1]
+        p = (S_T - K)*cp
+        
+        p = np.maximum(p,0) * D * f
 
-            p = (S_T - K)*cp
-            
-            p = np.maximum(p,0) * D * f
+        mv = p.mean()*Q
 
-            mv[i] = p.mean()*Q
+            #mv[i] = p.mean()*Q
 
-            i=i+1
+            #i=i+1
 
-        return mv
-  
+        return mv  
 
-    def delta(self,spot,vol,rate_c,rate_a,model_alt=None):
+
+    def mc_vector(self,spot_array,vol,rate_c,rate_a):
+
+        Q = self._quantity
+
+        n_spot = spot_array.size
+
+        spot_array[spot_array<=0] = self._spot_minimum
+
+        n_path = self._npaths_mc
+        n_time = self._nsteps_mc
+
+        T = self._maturity
+        dt = T / n_time
+        K = self._strike
+        B_level = self._barrier
+        B_type = self._barrier_type
+
+        if self._cp.lower() in('call','c'): 
+
+            cp = 1
+
+        else:
+
+            cp = -1
+
+        D = exp(-rate_c * T)
+
+        sigma = vol * sqrt(dt)
+
+        mu = (rate_c - rate_a) * dt 
+
+        np.random.seed(self._rnd_seed)
+
+        # d_rtr= np.random.normal(mu,sigma,(n_path,n_spot,n_time+1))
+
+        S0 = np.array([spot_array,]*n_path)
+
+        S_max = S0
+        S_min = S0
+
+        for t in range(n_time):
+
+            print(t)
+
+            d_rtr= np.random.normal(mu,sigma,(n_path,n_spot))
+
+            S1 =S0 * (1+d_rtr)
+
+            S_max = np.maximum(S_max,S1)
+            S_min = np.minimum(S_min,S1)
+
+            S0 = S1
+
+        if B_type == 'UO':
+
+            f = 1 * (S_max<B_level)
+
+        elif B_type == 'UI':
+
+            f = 1 * (S_max>=B_level)
+        
+        elif B_type == 'DO':
+
+            f = 1 * (S_min>B_level)
+
+        elif B_type == 'DI':
+
+            f = 1 * (S_min<=B_level)
+
+        S_T = S1
+
+        p_T = np.maximum(cp * (S_T - K),0) * f
+
+        df_payoff = p_T * D
+
+        mv_array = df_payoff.mean(axis=0) * Q
+
+        return mv_array
+
+
+    def delta(self,spot,vol,rate_c,rate_a,model_alt=None,mvcache=None):
 
         spot[spot<=0]=self._spot_minimum
 
@@ -794,7 +873,6 @@ class Barrier(object):
         else:
             model = model_alt
 
-
         if model in (self.pde, self.pde2): 
 
             delta_value = self.pde(spot,vol,rate_c,rate_a,'delta')
@@ -803,9 +881,15 @@ class Barrier(object):
 
             delta_value = self.bsm(spot,vol,rate_c,rate_a,'delta')
 
-        else:       
+        else:
 
-            price = model(spot,vol,rate_c,rate_a)
+            if mvcache is None:      
+
+                mv = model(spot,vol,rate_c,rate_a)
+
+            else:
+
+                mv = mvcache
 
             bumpvalue = self._delta_bump
 
@@ -817,14 +901,14 @@ class Barrier(object):
 
                 spot_up = spot + bumpvalue
             
-            price_up = model(spot_up,vol,rate_c,rate_a)
+            mv_up = model(spot_up,vol,rate_c,rate_a)
 
-            delta_value = (price_up - price)/(spot_up-spot)
+            delta_value = (mv_up - mv)/(spot_up-spot)
         
         return delta_value
     
 
-    def gamma(self,spot,vol,rate_c,rate_a,model_alt=None):
+    def gamma(self,spot,vol,rate_c,rate_a,model_alt=None, mvcache=None):
 
         spot[spot<=0]=self._spot_minimum
 
@@ -842,8 +926,11 @@ class Barrier(object):
 
             gamma_value = self.bsm(spot,vol,rate_c,rate_a,'gamma')
 
-        else:    
-            price = model(spot,vol,rate_c,rate_a)
+        else:
+            if mvcache is None:    
+                mv = model(spot,vol,rate_c,rate_a)
+            else:
+                mv = mvcache
 
             bumpvalue = self._gamma_bump
 
@@ -857,19 +944,20 @@ class Barrier(object):
                 spot_up = spot + bumpvalue
                 spot_down = max(spot - bumpvalue,0)
             
-            price_up = model(spot_up,vol,rate_c,rate_a)
-            price_down = model(spot_down,vol,rate_c,rate_a)
+            mv_up = model(spot_up,vol,rate_c,rate_a)
+            mv_down = model(spot_down,vol,rate_c,rate_a)
 
-            gamma_value = (price_up + price_down -2*price)/((spot_up-spot)**2)
+            gamma_value = (mv_up + mv_down -2 * mv)/((spot_up-spot)**2)
 
         return gamma_value
 
-    def vega(self,spot,vol,rate_c,rate_a,model_alt=None):
+    def vega(self,spot,vol,rate_c,rate_a,model_alt=None, mvcache=None):
 
         if model_alt is None:
 
             model = self._default_model
         else:
+
             model = model_alt
 
         spot[spot<=0]=self._spot_minimum
@@ -880,7 +968,13 @@ class Barrier(object):
 
         else: 
 
-            price = model(spot,vol,rate_c,rate_a)
+            if mvcache is None:
+
+                mv = model(spot,vol,rate_c,rate_a)
+
+            else:
+
+                mv = mvcache
 
             bumpvalue=self._vega_bump
 
@@ -892,14 +986,14 @@ class Barrier(object):
 
                 vol_up = vol + bumpvalue
                 
-            price_up = model(spot,vol_up,rate_c,rate_a)
+            mv_up = model(spot,vol_up,rate_c,rate_a)
 
-            vega_value = (price_up- price)/(vol_up-vol) / 100
+            vega_value = (mv_up- mv)/(vol_up-vol) / 100
         
         return vega_value
 
 
-    def rho(self,spot,vol,rate_c,rate_a,model_alt=None):
+    def rho(self,spot,vol,rate_c,rate_a,model_alt=None,mvcache=None):
 
         if model_alt is None:
 
@@ -915,7 +1009,13 @@ class Barrier(object):
 
         else:
 
-            price = model(spot,vol,rate_c,rate_a)
+            if mvcache is None:
+
+                mv = model(spot,vol,rate_c,rate_a)
+
+            else:
+
+                mv = mvcache
 
             bumpvalue=self._rho_bump
 
@@ -927,13 +1027,13 @@ class Barrier(object):
 
                 rate_c_up = rate_c + bumpvalue
                 
-            price_up = model(spot,vol,rate_c_up,rate_a)
+            mv_up = model(spot,vol,rate_c_up,rate_a)
 
-            rho_value = (price_up- price)/(rate_c_up-rate_c) / 100
+            rho_value = (mv_up- mv)/(rate_c_up-rate_c) / 100
         
         return rho_value
 
-    def theta(self,spot,vol,rate_c,rate_a,model_alt=None):
+    def theta(self,spot,vol,rate_c,rate_a,model_alt=None,mvcache=None):
 
         if model_alt is None:
 
@@ -953,22 +1053,28 @@ class Barrier(object):
         
         else:
 
-            price = model(spot,vol,rate_c,rate_a)
+            if mvcache is None:
+
+                mv = model(spot,vol,rate_c,rate_a)
+
+            else:
+
+                mv = mvcache
 
             bumpvalue = self._theta_bump
 
             self._maturity= self._maturity - bumpvalue
 
-            price_shift = model(spot,vol,rate_c,rate_a)
+            mv_shift = model(spot,vol,rate_c,rate_a)
 
-            theta_value = (price_shift- price) / bumpvalue * 1/365
+            theta_value = (mv_shift- mv) / bumpvalue * 1/365
 
             self._maturity= self._maturity + bumpvalue
         
         return theta_value
 
 
-    def volga(self,spot,vol,rate_c,rate_a,model_alt=None):
+    def volga(self,spot,vol,rate_c,rate_a,model_alt=None,vegacache=None):
 
         if model_alt is None:
 
@@ -980,29 +1086,35 @@ class Barrier(object):
 
         bumpvalue=self._vega_bump
 
-        # vega = self.vega(spot,vol,rate_c,rate_a,model)
+        if vegacache is None:
+
+            vega = self.vega(spot,vol,rate_c,rate_a,model)
+
+        else:
+
+            vega = vegacache
 
         if self._vega_bump_is_percent == True:
 
             vol_up = vol * (1+bumpvalue/100)
 
-            vol_down = vol - (1+bumpvalue/100)
+            # vol_down = vol - (1+bumpvalue/100)
             
         else:                                 # then the bumpvalue is absolute
 
             vol_up = vol + bumpvalue
 
-            vol_down = max(vol - bumpvalue,0)
+            # vol_down = max(vol - bumpvalue,0)
 
         vega_up = self.vega(spot,vol_up,rate_c,rate_a,model)
-        vega_down = self.vega(spot,vol_down,rate_c,rate_a,model)
+        # vega_down = self.vega(spot,vol_down,rate_c,rate_a,model)
 
-        volga_value = (vega_up - vega_down)/(vol_up-vol_down)
+        volga_value = (vega_up - vega)/(vol_up-vol)
 
         return volga_value
 
 
-    def vanna(self,spot,vol,rate_c,rate_a,model_alt=None):
+    def vanna(self,spot,vol,rate_c,rate_a,model_alt=None,vegacache=None,deltacache=None):
 
         if model_alt is None:
 
@@ -1014,7 +1126,13 @@ class Barrier(object):
 
         if self._vanna_dvega == True:
 
-            vega = self.vega(spot,vol,rate_c,rate_a,model)
+            if vegacache is None:
+
+                vega = self.vega(spot,vol,rate_c,rate_a,model)
+            
+            else:
+
+                vega = vegacache
 
             bumpvalue=self._delta_bump
 
@@ -1032,7 +1150,13 @@ class Barrier(object):
 
         else:
 
-            delta = self.delta(spot,vol,rate_c,rate_a,model)
+            if deltacache is None:
+
+                delta = self.delta(spot,vol,rate_c,rate_a,model)
+
+            else:
+
+                delta = deltacache
             
             bumpvalue=self._vega_bump
 
@@ -1059,24 +1183,24 @@ class Barrier(object):
             model1 = self._default_model
 
         mv = model1(s,vol,rate_c,rate_a)
-        delta=self.delta(s,vol,rate_c,rate_a,model1)
-        gamma=self.gamma(s,vol,rate_c,rate_a,model1)
-        vega=self.vega(s,vol,rate_c,rate_a,model1)
-        theta=self.theta(s,vol,rate_c,rate_a,model1)
-        rho=self.rho(s,vol,rate_c,rate_a,model1)
-        vanna=self.vanna(s,vol,rate_c,rate_a,model1)
-        volga=self.volga(s,vol,rate_c,rate_a,model1)
+        delta=self.delta(s,vol,rate_c,rate_a,model1,mvcache=mv)
+        gamma=self.gamma(s,vol,rate_c,rate_a,model1,mvcache=mv)
+        vega=self.vega(s,vol,rate_c,rate_a,model1,mvcache=mv)
+        theta=self.theta(s,vol,rate_c,rate_a,model1,mvcache=mv)
+        rho=self.rho(s,vol,rate_c,rate_a,model1,mvcache=mv)
+        vanna=self.vanna(s,vol,rate_c,rate_a,model1,vegacache=vega,deltacache=delta)
+        volga=self.volga(s,vol,rate_c,rate_a,model1,vegacache=vega)
         
         if model2 is not None:
             
             mv2 =model2(s,vol,rate_c,rate_a)
-            delta2 = self.delta(s,vol,rate_c,rate_a,model2)
-            gamma2 = self.gamma(s,vol,rate_c,rate_a,model2)
-            vega2 = self.vega(s,vol,rate_c,rate_a,model2)
-            theta2 = self.theta(s,vol,rate_c,rate_a,model2)
-            volga2 = self.volga(s,vol,rate_c,rate_a,model2)
-            vanna2 = self.vanna(s,vol,rate_c,rate_a,model2)
-            rho2 = self.rho(s,vol,rate_c,rate_a,model2)
+            delta2 = self.delta(s,vol,rate_c,rate_a,model2,mvcache=mv2)
+            gamma2 = self.gamma(s,vol,rate_c,rate_a,model2,mvcache=mv2)
+            vega2 = self.vega(s,vol,rate_c,rate_a,model2,mvcache=mv2)
+            theta2 = self.theta(s,vol,rate_c,rate_a,model2,mvcache=mv2)
+            volga2 = self.volga(s,vol,rate_c,rate_a,model2,vegacache=vega2)
+            vanna2 = self.vanna(s,vol,rate_c,rate_a,model2,vegacache=vega2,deltacache=delta2)
+            rho2 = self.rho(s,vol,rate_c,rate_a,model2,mvcache=mv2)
 
         fig, ax = plt.subplots(ncols=4, nrows=2, figsize=(14,9))
 
@@ -1140,13 +1264,13 @@ class Barrier(object):
 def main_barrier():
 
     vol=0.2
-    T=1
-    K =50
+    T=2
+    K =80
     rate=5/100
     div=3/100
     quantity = 100
     cp= 'call'
-    B = 80
+    B = 3000
     Btype ='UO'
 
     op = Barrier(B,Btype,K,cp,T,quantity)
@@ -1154,24 +1278,26 @@ def main_barrier():
     PDE= op.pde
     PDE2= op.pde2
     BSM = op.bsm
-    MC =op.mc
+    #MC =np.vectorize(op.mc)
+    MC = op.mc_vector
 
-    op._npaths_mc = 10000
+
+    op._npaths_mc = 100000
     op._nsteps_mc = 300
     op._rnd_seed = 10000
 
     op._tsteps_pde = 365
-    op._ssteps_pde = 300
+    op._ssteps_pde = 10000
 
-    op._delta_bump=0.1
-    op._gamma_bump=0.1
+    op._delta_bump=1
+    op._gamma_bump=1
     op._vega_bump=0.01
     op._theta_bump=1/365
     op._rho_bump = 0.01
 
-    spot_array= np.linspace(0,80,100)
+    spot_array= np.linspace(0,200,1000)
 
-    op.spot_ladder(spot_array,vol,rate,div,PDE,MC)
+    op.spot_ladder(spot_array,vol,rate,div,PDE,BSM)
 
 if __name__ =='__main__':
 
