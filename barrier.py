@@ -15,6 +15,9 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy.interpolate import interp1d
 
+from multiprocessing import Process, Pool
+import os
+
 
 class Barrier(object):    
 
@@ -61,6 +64,8 @@ class Barrier(object):
 
 
     def bsm(self,spot_array,vol,rate_c,rate_a,greeks='mv'):
+
+        if self._displayprogress == True: print('Black-Scholes Model \n')
 
         spot_array[spot_array<=0]=self._spot_minimum
       
@@ -152,6 +157,8 @@ class Barrier(object):
                 
 
     def pde(self,spot,vol,rate_c,rate_a,greeks='mv'): 
+
+        if self._displayprogress == True: print('PDE(implicit) \n')
 
         Q = self._quantity
         
@@ -364,6 +371,8 @@ class Barrier(object):
 
  
     def pde2(self,spot,vol,rate_c,rate_a,greeks='mv'):   # PDE using explicit finite differece method
+
+        if self._displayprogress == True: print('PDE(explicit) \n')
 
         Q = self._quantity
 
@@ -702,7 +711,12 @@ class Barrier(object):
 
     def mc(self,spot,vol,rate_c,rate_a):
 
-        print('spot= %.3f' % spot)
+        if self._displayprogress == True: 
+            
+            print('Monte Carlo simulation \n')
+
+            print('spot= %.3f' % spot)
+
         Q = self._quantity
 
         spot=max(self._spot_minimum,spot)
@@ -785,6 +799,8 @@ class Barrier(object):
 
     def mc_vector(self,spot_array,vol,rate_c,rate_a):
 
+        if self._displayprogress == True: print('Monte Carlo simulation(vector version) \n')
+
         Q = self._quantity
 
         n_spot = spot_array.size
@@ -825,7 +841,7 @@ class Barrier(object):
 
         for t in range(n_time):
 
-            print(t)
+            if self._displayprogress == True and t%10 ==0: print(t)
 
             d_rtr= np.random.normal(mu,sigma,(n_path,n_spot))
 
@@ -864,6 +880,8 @@ class Barrier(object):
 
 
     def delta(self,spot,vol,rate_c,rate_a,model_alt=None,mvcache=None):
+
+        if self._displayprogress == True: print('Delta \n')
 
         spot[spot<=0]=self._spot_minimum
 
@@ -910,6 +928,8 @@ class Barrier(object):
 
     def gamma(self,spot,vol,rate_c,rate_a,model_alt=None, mvcache=None):
 
+        if self._displayprogress == True: print('Gamma \n')
+
         spot[spot<=0]=self._spot_minimum
 
         if model_alt is None:
@@ -953,6 +973,8 @@ class Barrier(object):
 
     def vega(self,spot,vol,rate_c,rate_a,model_alt=None, mvcache=None):
 
+        if self._displayprogress == True: print('Vega \n')
+
         if model_alt is None:
 
             model = self._default_model
@@ -995,6 +1017,8 @@ class Barrier(object):
 
     def rho(self,spot,vol,rate_c,rate_a,model_alt=None,mvcache=None):
 
+        if self._displayprogress == True: print('Rho \n')
+
         if model_alt is None:
 
             model = self._default_model
@@ -1034,6 +1058,8 @@ class Barrier(object):
         return rho_value
 
     def theta(self,spot,vol,rate_c,rate_a,model_alt=None,mvcache=None):
+
+        if self._displayprogress == True: print('Theta \n')
 
         if model_alt is None:
 
@@ -1076,6 +1102,8 @@ class Barrier(object):
 
     def volga(self,spot,vol,rate_c,rate_a,model_alt=None,vegacache=None):
 
+        if self._displayprogress == True: print('Volga \n')
+
         if model_alt is None:
 
             model = self._default_model
@@ -1115,6 +1143,8 @@ class Barrier(object):
 
 
     def vanna(self,spot,vol,rate_c,rate_a,model_alt=None,vegacache=None,deltacache=None):
+
+        if self._displayprogress == True: print('Vanna \n')
 
         if model_alt is None:
 
@@ -1183,6 +1213,9 @@ class Barrier(object):
             model1 = self._default_model
 
         mv = model1(s,vol,rate_c,rate_a)
+        
+        print('Parent process %s.' % os.getpid())
+
         delta=self.delta(s,vol,rate_c,rate_a,model1,mvcache=mv)
         gamma=self.gamma(s,vol,rate_c,rate_a,model1,mvcache=mv)
         vega=self.vega(s,vol,rate_c,rate_a,model1,mvcache=mv)
@@ -1255,7 +1288,41 @@ class Barrier(object):
         
         #plt.legend(loc=0)
 
-        fig.suptitle('Barrier Option Greeks')
+        fig.suptitle('Show me the speed')
+        plt.show()
+
+        return None
+
+    def spot_ladder_light(self, spot_array, vol , rate_c , rate_a , model1=None, model2=None):
+
+        s = spot_array
+
+        if model1 is None:
+            model1 = self._default_model
+
+        mv = model1(s,vol,rate_c,rate_a)
+   
+        if model2 is not None:
+            
+            mv2 =model2(s,vol,rate_c,rate_a)
+
+
+        plt.figure()
+ 
+
+        if model2 is None:
+
+            plt.plot(s,mv,label='MV:model1')
+  
+        
+        else:
+
+            plt.plot(s,mv,label='MV:model1')
+            plt.plot(s,mv2,label='MV:model2')
+
+        
+        plt.legend(loc=0)
+
         plt.show()
 
         return None
@@ -1264,13 +1331,13 @@ class Barrier(object):
 def main_barrier():
 
     vol=0.2
-    T=2
-    K =80
+    T=1
+    K =50
     rate=5/100
     div=3/100
-    quantity = 100
+    quantity = 1
     cp= 'call'
-    B = 3000
+    B = 80
     Btype ='UO'
 
     op = Barrier(B,Btype,K,cp,T,quantity)
@@ -1282,22 +1349,23 @@ def main_barrier():
     MC = op.mc_vector
 
 
-    op._npaths_mc = 100000
-    op._nsteps_mc = 300
+    op._npaths_mc = 50000
+    op._nsteps_mc = 10000
     op._rnd_seed = 10000
 
-    op._tsteps_pde = 365
-    op._ssteps_pde = 10000
+    op._tsteps_pde = 500
+    op._ssteps_pde = 500
 
     op._delta_bump=1
     op._gamma_bump=1
     op._vega_bump=0.01
     op._theta_bump=1/365
     op._rho_bump = 0.01
+    op._displayprogress = False
 
-    spot_array= np.linspace(0,200,1000)
+    spot_array= np.linspace(0,100,100)
 
-    op.spot_ladder(spot_array,vol,rate,div,PDE,BSM)
+    op.spot_ladder_light(spot_array,vol,rate,div,PDE,MC)
 
 if __name__ =='__main__':
 
